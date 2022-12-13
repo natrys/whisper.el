@@ -42,12 +42,12 @@ Both of these functions will automatically compile whisper.cpp dependency and do
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
 - =whisper-enable-speed-up=: Default is =nil=. This can supposedly speed up transcribing up to 2x, at the expense of some accuracy loss. You should experiment if it works for you, specially when using larger models.
 
-Additionally, depending on your input device and system (because I have no idea about OSX or Windows) you may need to modify these variables to get recording to work:
+Additionally, depending on your input device and system you will need to modify these variables to get recording to work:
 
-- =whisper--ffmpeg-input-format=: This is what you would pass to the =-f= flag of FFmpeg to input, to record audio.
-- =whisper--ffmpeg-input=: This is what you would pass to the =-i= flag of FFmpeg, to record audio.
+- =whisper--ffmpeg-input-format=: This is what you would pass to the =-f= flag of FFmpeg to input, to record audio. Default is =pulse= on Linux, =avfoundation= on OSX and =dshow= on Windows.
+- =whisper--ffmpeg-input-device=: This is what you would pass to the =-i= flag of FFmpeg to record audio, like ~hw:0,2~ or something. There is no default (unless you are using pulseaudio in that case it's =default=) so this will likely need to be set.
 
 *** Caveats
 
 - Whisper is open-source in the sense that weights and the engine source is available. But training data or methodology is not.
-- Real time transcribing is probably not feasible with it yet. The accuracy is better when it has a bigger window of surrounding context. Plus it would need beefy hardware to keep up, possibly using a smaller model. There is some interesting activity going on at whisper.cpp upstream, but in the end I don't see the appeal of that in my workflow.
+- Real time transcribing is probably not feasible with it yet. The accuracy is better when it has a bigger window of surrounding context. Plus it would need beefy hardware to keep up, possibly using a smaller model. There is some interesting activity going on at whisper.cpp upstream, but in the end I don't see the appeal of that in my workflow (yet).

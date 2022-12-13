@@ -107,12 +107,12 @@ When non-English, use generic model (without .en suffix)"
     ('gnu/linux (if (executable-find "pulseaudio") "pulse" "alsa"))
     ('darwin "avfoundation")
     ('windows-nt "dshow")
-    (_ (error "Please set FFmpeg input format according to your platform"))))
+    (_ nil)))
 
-(defvar whisper--ffmpeg-input
+(defvar whisper--ffmpeg-input-device
   (pcase whisper--ffmpeg-input-format
     ("pulse" "default")
-    (_ ":0")))
+    (_ nil)))
 
 (defvar whisper--ffmpeg-input-file nil)
 
@@ -122,10 +122,18 @@ When non-English, use generic model (without .en suffix)"
   (unless (executable-find "ffmpeg")
     (error "Needs FFmpeg to record audio"))
 
+  (unless (or whisper--ffmpeg-input-file
+              whisper--ffmpeg-input-format)
+    (error "Set a suitable value for whisper--ffmpeg-input-format"))
+
+  (unless (or whisper--ffmpeg-input-file
+              whisper--ffmpeg-input-device)
+    (error "Set a suitable value for whisper--ffmpeg-input-device"))
+
   `("ffmpeg"
     ,@(unless whisper--ffmpeg-input-file
         (list "-f" whisper--ffmpeg-input-format))
-    "-i" ,(or whisper--ffmpeg-input-file whisper--ffmpeg-input)
+    "-i" ,(or whisper--ffmpeg-input-file whisper--ffmpeg-input-device)
     ,@(when whisper-recording-timeout
         (list "-t" (number-to-string whisper-recording-timeout)))
     "-ar" "16000"
