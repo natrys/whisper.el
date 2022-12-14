@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <contact@imrankhan.live>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -134,7 +134,7 @@ When non-English, use generic model (without .en suffix)"
     ,@(unless whisper--ffmpeg-input-file
         (list "-f" whisper--ffmpeg-input-format))
     "-i" ,(or whisper--ffmpeg-input-file whisper--ffmpeg-input-device)
-    ,@(when whisper-recording-timeout
+    ,@(when (and (not whisper--ffmpeg-input-file) whisper-recording-timeout)
         (list "-t" (number-to-string whisper-recording-timeout)))
     "-ar" "16000"
     "-y" ,output-file))
@@ -155,7 +155,8 @@ When non-English, use generic model (without .en suffix)"
   "Start audio recording process in the background."
   (with-current-buffer whisper--point-buffer
     (setq whisper--marker (point-marker)))
-  (unless whisper--ffmpeg-input-file
+  (if whisper--ffmpeg-input-file
+      (message "[*] Pre-processing media file")
     (message "[*] Recording audio"))
   (setq whisper--recording-process
         (make-process
