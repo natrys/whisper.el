@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <contact@imrankhan.live>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -104,7 +104,10 @@ When non-English, use generic model (without .en suffix)"
 
 (defvar whisper--ffmpeg-input-format
   (pcase system-type
-    ('gnu/linux (if (executable-find "pulseaudio") "pulse" "alsa"))
+    ('gnu/linux (if (or (executable-find "pulseaudio")
+                        (executable-find "pipewire-pulse"))
+                    "pulse"
+                  "alsa"))
     ('darwin "avfoundation")
     ('windows-nt "dshow")
     (_ nil)))
@@ -192,7 +195,7 @@ When non-English, use generic model (without .en suffix)"
                              (when (string-equal "finished\n" event)
                                (goto-char (point-min))
                                (when (search-forward-regexp "." nil t)
-                                 (kill-region (point-min) (point))
+                                 (delete-region (point-min) (point))
                                  (with-current-buffer (marker-buffer whisper--marker)
                                    (goto-char whisper--marker)
                                    (insert-buffer-substring whisper--stdout-buffer)
