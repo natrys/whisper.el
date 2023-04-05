@@ -212,7 +212,8 @@ When non-English, use generic model (without .en suffix)"
              (string-suffix-p ".en" whisper-model))
     (error "Use generic model (non .en version) for non-English languages"))
 
-  (when (and (not (= 2 (length whisper-language))))
+  (unless (or (= 2 (length whisper-language))
+              (string-equal "auto" whisper-language))
     (error (concat "Unknown language shortcode. For the list, see: "
                    "https://github.com/ggerganov/whisper.cpp/blob/master/whisper.cpp")))
 
