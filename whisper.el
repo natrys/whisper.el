@@ -2,9 +2,9 @@
 
 ;; Copyright (C) 2022 Imran Khan.
 
-;; Author: Imran Khan <contact@imrankhan.live>
+;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.2
+;; Version: 0.1.3
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -196,6 +196,9 @@ When non-English, use generic model (without .en suffix)"
                                (goto-char (point-min))
                                (when (search-forward-regexp "." nil t)
                                  (delete-region (point-min) (point))
+                                 (goto-char (point-max))
+                                 (skip-chars-backward "\n")
+                                 (delete-region (point) (point-max))
                                  (with-current-buffer (marker-buffer whisper--marker)
                                    (goto-char whisper--marker)
                                    (insert-buffer-substring whisper--stdout-buffer)
@@ -303,7 +306,7 @@ downstream functions through parameters which could have done the trick."
 
       (when (and (not (file-exists-p (concat base "models/ggml-" whisper-model ".bin")))
                  (not (string-equal "interrupt\n" status)))
-        (if (yes-or-no-p (format "Speech recognition model %s isn't available, download now?" whisper-model))
+        (if (yes-or-no-p (format "Speech recognition model \"%s\" isn't available, download now?" whisper-model))
             (let ((make-commands
                    (concat
                     "cd " base " && "
@@ -330,7 +333,7 @@ downstream functions through parameters which could have done the trick."
 
       (when (string-equal "finished\n" status)
         (unless (or whisper--ffmpeg-input-file
-                    (yes-or-no-p "Speech recognition download completed, want to record audio now?"))
+                    (yes-or-no-p "Speech recognition model download completed, want to record audio now?"))
           (throw 'early-return nil)))
 
       ;; finally
@@ -367,7 +370,7 @@ This is a dwim function that does different things depending on current state:
       (whisper--check-model-consistency)
       (setq-default whisper--ffmpeg-input-file nil)
       (when (equal arg '(4))
-        (when-let ((file (read-file-name "Media file:")))
+        (when-let ((file (read-file-name "Media file: ")))
           (unless (file-readable-p file)
             (error "Media file doesn't exist or isn't readable"))
           (setq-default whisper--ffmpeg-input-file file)))
