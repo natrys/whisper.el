@@ -372,7 +372,7 @@ This is a dwim function that does different things depending on current state:
       (whisper--check-model-consistency)
       (setq-default whisper--ffmpeg-input-file nil)
       (when (equal arg '(4))
-        (when-let ((file (read-file-name "Media file: ")))
+        (when-let ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
           (unless (file-readable-p file)
             (error "Media file doesn't exist or isn't readable"))
           (setq-default whisper--ffmpeg-input-file file)))
