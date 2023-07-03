@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.3
+;; Version: 0.1.4
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -175,7 +175,9 @@ When non-English, use generic model (without .en suffix)"
                                 (string-equal "exited abnormally with code 255\n" event))
                             (whisper--transcribe-audio))
                            ((string-equal "exited abnormally with code 1\n" event)
-                            (error "FFmpeg command failed to record audio")))))))
+                            (if whisper--ffmpeg-input-file
+                                (error "FFmpeg failed to convert given file")
+                              (error "FFmpeg failed to record audio"))))))))
 
 (defun whisper--transcribe-audio ()
   "Start audio transcribing process in the background."
