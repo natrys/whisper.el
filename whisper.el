@@ -145,7 +145,7 @@ When non-English, use generic model (without .en suffix)"
 (defun whisper--transcribe-command (input-file)
   "Produces whisper.cpp command to be run given location of INPUT-FILE."
   (let ((base (expand-file-name (file-name-as-directory whisper--install-path))))
-    `(,(concat base "main")
+    `(,(concat base (if (eq system-type 'windows-nt) "main.exe" "main"))
       ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
       ,@(when whisper-enable-speed-up '("--speed-up"))
       ,@(when whisper-translate '("--translate"))
@@ -289,7 +289,7 @@ downstream functions through parameters which could have done the trick."
 
       (setq whisper--install-path base)
 
-      (when (and (not (file-exists-p (concat base "main")))
+      (when (and (not (file-exists-p (concat base (if (eq system-type 'windows-nt) "main.exe" "main"))))
                  (not (string-equal "interrupt\n" status)))
         (if (yes-or-no-p (format "Inference engine whisper.cpp is not installed, install it at %s ?"
                                  whisper--install-path))
@@ -322,7 +322,7 @@ downstream functions through parameters which could have done the trick."
       (when (string-equal "interrupt\n" status)
         ;; double check to be sure before cleaning up
         (when (and (file-directory-p base) (string-suffix-p "/whisper.cpp/" base))
-          (if (file-exists-p (concat base "main"))
+          (if (file-exists-p (concat base (if (eq system-type 'windows-nt) "main.exe" "main")))
               ;; model download interrupted probably, should delete partial file
               (progn
                 (message "Download interrupted, cleaning up.")
