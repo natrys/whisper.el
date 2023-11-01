@@ -32,6 +32,8 @@ Invoking =whisper-run= with a prefix argument (C-u) has the same effect as =whis
 
 Both of these functions will automatically compile whisper.cpp dependency and download language model the first time they are run. When recording is in progress, invoking them stops it and starts transcribing. Otherwise if compilation, download (of model file) or transcription job is in progress, calling them again cancels that.
 
+Note for MacOS users: If whisper.el is failing silently, it might be because Emacs doesn't have the permission to use the Mic. Follow the [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#grant-emacs-permission-to-use-mic][recipe]] in wiki to grant it explicitly.
+
 *** Variables
 
 - =whisper-install-directory=: Location where whisper.cpp will be installed. Default is =~/.emacs.d/.cache/=.
@@ -45,7 +47,13 @@ Both of these functions will automatically compile whisper.cpp dependency and do
 Additionally, depending on your input device and system you will need to modify these variables to get recording to work:
 
 - =whisper--ffmpeg-input-format=: This is what you would pass to the =-f= flag of FFmpeg to input, to record audio. Default is =pulse= on Linux, =avfoundation= on OSX and =dshow= on Windows.
-- =whisper--ffmpeg-input-device=: This is what you would pass to the =-i= flag of FFmpeg to record audio, like ~hw:0,2~ or something. There is no default (unless you are using pulseaudio in that case it's =default=) so this will likely need to be set.
+- =whisper--ffmpeg-input-device=: This is what you would pass to the =-i= flag of FFmpeg to record audio, like ~hw:0,2~ or something. There is no default (unless you are using pulseaudio or pipewire-pulse in that case it's =default= source) so this will likely need to be set. For MacOS users, the wiki contains a recipe that lets you set this interactively: [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#what-should-be-the-value-of-whisper--ffmpeg-input-device][see here]].
+
+Pulseaudio and PipeWire users who haven't further configured their =default= source may find that results are better when at least =echo cancel= filter is enabled (by loading relevant module). Then you could either set that as the default source (using e.g. =pactl=) or just use that source's name in =whisper--ffmpeg-input-device=. Furthermore, the following programs could be used to improve quality of audio recording in general:
+
+- [[https://github.com/wwmm/easyeffects][Easy Effects]]
+- [[https://github.com/noisetorch/NoiseTorch][NoiseTorch]]
+- [[https://github.com/Rikorose/DeepFilterNet][DeepFilterNet]] (see also [[https://github.com/Rikorose/DeepFilterNet/blob/main/ladspa/README.md][PipeWire integration]])
 
 *** Caveats
 
