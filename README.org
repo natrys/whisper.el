@@ -32,7 +32,7 @@ Invoking =whisper-run= with a prefix argument (C-u) has the same effect as =whis
 
 Both of these functions will automatically compile whisper.cpp dependency and download language model the first time they are run. When recording is in progress, invoking them stops it and starts transcribing. Otherwise if compilation, download (of model file) or transcription job is in progress, calling them again cancels that.
 
-Note for MacOS users: If whisper.el is failing silently, it might be because Emacs doesn't have the permission to use the Mic. Follow the [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#grant-emacs-permission-to-use-mic][recipe]] in wiki to grant it explicitly.
+_Note for MacOS users_: If whisper.el is failing silently, it might be because Emacs doesn't have the permission to use the Mic. Follow the [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#grant-emacs-permission-to-use-mic][recipe]] in wiki to grant it explicitly.
 
 *** Variables
 
@@ -42,7 +42,8 @@ Note for MacOS users: If whisper.el is failing silently, it might be because Ema
 - =whisper-translate=: Default =nil= means transcription output language is same as spoken language. Setting it to =t= translates it to English first.
 - =whisper-use-threads=: Default =nil= means let whisper.cpp choose appropriate value (which it sets with formula min(4, num_of_cores)). If you want to use more than 4 threads (as you have more than 4 cpu cores), set this number manually.
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
-- =whisper-enable-speed-up=: Default is =nil=. This can supposedly speed up transcribing up to 2x, at the expense of some accuracy loss. You should experiment if it works for you, specially when using larger models.
+- =whisper-enable-speed-up=: Default is =nil=. This can supposedly speed up transcribing up to 2x, at the expense of some accuracy loss. You should experiment if it works for you, specially when using larger models. _Note_: As of Nov 2023, setting this option does nothing. It was recently [[https://github.com/ggerganov/whisper.cpp/commit/7e54df414e415c9ebb37ffeedca78685173c20f4][disabled by upstream]] "temporarily" due to bugs, we will see if it comes back.
+- =whisper-insert-text-at-point=: By default whisper.el inserts the transcribed text at the point where =whisper-run= or =whisper-file= was invoked. But if you set this to =nil=, the text will be displayed in a separate buffer instead.
 
 Additionally, depending on your input device and system you will need to modify these variables to get recording to work:
 
@@ -54,6 +55,32 @@ Pulseaudio and PipeWire users who haven't further configured their =default= sou
 - [[https://github.com/wwmm/easyeffects][Easy Effects]]
 - [[https://github.com/noisetorch/NoiseTorch][NoiseTorch]]
 - [[https://github.com/Rikorose/DeepFilterNet][DeepFilterNet]] (see also [[https://github.com/Rikorose/DeepFilterNet/blob/main/ladspa/README.md][PipeWire integration]])
+
+*** Hooks
+
+There are couple of hooks provided for user defined actions:
+
+- whisper-pre-process-hook: Functions here are run before anything else. Helpful to make ensure suitable condition to run whisper (e.g. check if buffer is read-only).
+- whisper-post-process-hook: If you want to do some text formatting or transformation on the whisper output, add a function here. For example, the default output is one big line of text. If you want to do something like adding a paragraph break every N sentences, you could do something like:
+  #+begin_src elisp
+(defun whisper--break-sentences (n)
+  "Put a paragraph break every N sentences."
+  (save-excursion
+    (goto-char (point-min))
+    (catch 'return
+      (while t
+        (dotimes (_ n)
+          (forward-sentence 1)
+          (when (eobp) (throw 'return nil)))
+        (insert "\n\n")
+        (when (= (char-after) ?\ )
+          (delete-horizontal-space))))))
+
+(add-hook 'whisper-post-process-hook
+          (lambda ()
+            ;; add a paragraph break every 5 sentences
+            (whisper--break-sentences 5)))
+  #+end_src
 
 *** Caveats
 

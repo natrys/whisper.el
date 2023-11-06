@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.4
+;; Version: 0.1.5
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -40,7 +40,9 @@
   "Whether to sacrifices some accuracy to speed up transcribing.
 
 Basically whether to use \"-su\" flag in whisper.cpp.  You should experiment
-enabling it to see if it works well enough for you."
+enabling it to see if it works well enough for you.
+
+It's currently disabled by upstream because of bugs, so does nothing."
   :type 'boolean
   :group 'whisper)
 
@@ -83,6 +85,31 @@ When non-English, use generic model (without .en suffix)"
   :type 'boolean
   :group 'whisper)
 
+(defcustom whisper-insert-text-at-point t
+  "Whether to put whisper output under point in current buffer.
+
+When nil, instead of inserting text under current point, a temporary buffer
+containing whisper output text is displayed.  The buffer name is distinguised
+with current timestamp and it's the user's responsibility to kill the buffer if
+they want to."
+  :type 'boolean
+  :group 'whisper)
+
+(defcustom whisper-pre-process-hook '(whisper--check-buffer-read-only-p)
+  "Hook run before whisper.el does anything."
+  :type 'hook
+  :group 'whisper)
+
+(defcustom whisper-post-process-hook nil
+  "Hook run after whisper command finishes producing output.
+
+If you want to transform the command output text in some way before they are
+inserted into the original buffer, add your processing function here.  They
+will be run with a buffer containing the whisper command output text as their
+current buffer."
+  :type 'hook
+  :group 'whisper)
+
 ;;; Internal variables
 
 (defvar whisper--stdout-buffer-name "*whisper-stdout*")
@@ -94,7 +121,7 @@ When non-English, use generic model (without .en suffix)"
 
 (defvar whisper--recording-process nil)
 (defvar whisper--transcribing-process nil)
-(defvar whisper--marker nil)
+(defvar whisper--marker (make-marker))
 
 (defvar whisper--install-path nil)
 
@@ -118,6 +145,11 @@ When non-English, use generic model (without .en suffix)"
     (_ nil)))
 
 (defvar whisper--ffmpeg-input-file nil)
+
+;; Error out if current buffer is read-only
+(defun whisper--check-buffer-read-only-p ()
+  (when (and whisper-insert-text-at-point buffer-read-only)
+    (error "Buffer is read-only, can't insert text here.")))
 
 ;; Maybe sox would be a lighter choice for something this simple?
 (defun whisper--record-command (output-file)
@@ -156,8 +188,9 @@ When non-English, use generic model (without .en suffix)"
 
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
-  (with-current-buffer whisper--point-buffer
-    (setq whisper--marker (point-marker)))
+  (when whisper-insert-text-at-point
+    (with-current-buffer whisper--point-buffer
+      (setq whisper--marker (point-marker))))
   (if whisper--ffmpeg-input-file
       (message "[*] Pre-processing media file")
     (message "[*] Recording audio"))
@@ -196,15 +229,27 @@ When non-English, use generic model (without .en suffix)"
                            (with-current-buffer whisper--stdout-buffer
                              (when (string-equal "finished\n" event)
                                (goto-char (point-min))
-                               (when (search-forward-regexp "." nil t)
-                                 (delete-region (point-min) (point))
-                                 (goto-char (point-max))
-                                 (skip-chars-backward "\n")
-                                 (delete-region (point) (point-max))
-                                 (with-current-buffer (marker-buffer whisper--marker)
-                                   (goto-char whisper--marker)
+                               (skip-chars-forward " \n")
+                               (when (> (point) (point-min))
+                                 (delete-region (point-min) (point)))
+                               (goto-char (point-max))
+                               (skip-chars-backward " \n")
+                               (when (> (point-max) (point))
+                                 (delete-region (point) (point-max)))
+                               (when (= (buffer-size) 0)
+                                 (error "whisper command produced no output"))
+                               (goto-char (point-min))
+                               (run-hooks 'whisper-post-process-hook)
+                               (if whisper-insert-text-at-point
+                                   (with-current-buffer (marker-buffer whisper--marker)
+                                     (goto-char whisper--marker)
+                                     (insert-buffer-substring whisper--stdout-buffer)
+                                     (goto-char whisper--marker))
+                                 (with-current-buffer
+                                     (get-buffer-create
+                                      (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
                                    (insert-buffer-substring whisper--stdout-buffer)
-                                   (goto-char whisper--marker))))))
+                                   (display-buffer (current-buffer)))))))
                        (set-marker whisper--marker nil)
                        (setq whisper--point-buffer nil)
                        (kill-buffer whisper--stdout-buffer-name)
@@ -370,6 +415,7 @@ This is a dwim function that does different things depending on current state:
      (t
       (setq whisper--point-buffer (current-buffer))
       (whisper--check-model-consistency)
+      (run-hooks 'whisper-pre-process-hook)
       (setq-default whisper--ffmpeg-input-file nil)
       (when (equal arg '(4))
         (when-let ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
