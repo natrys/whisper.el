@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.6
+;; Version: 0.1.7
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -102,6 +102,23 @@ Valid values are (from lowest to highest quality):
 - q5_1
 - q8_0"
   :type '(choice integer (const nil))
+  :group 'whisper)
+
+(defcustom whisper-install-whispercpp t
+  "Specify whether to install whisper.cpp automatically.
+
+By default whisper.el compiles whisper.cpp automatically.   But if you are on a
+platform where our automatic whisper.cpp install doesn't work but you are able
+to do so manually, you can set this to 'manual to skip our try (and failure) to
+install it automatically.  Note that in case a functional install is found at
+`whisper-install-directory', we can still do model download, quantization
+automatically.
+
+But if you are planning to use something other than whisper.cpp entirely, as
+such don't want to install it nor run checks for it, you may opt out of
+whisper.cpp as a whole by setting this to nil.  In that case it's your
+responsibility to override `whisper-command' with appropriate function."
+  :type '(choice boolean (const 'manual))
   :group 'whisper)
 
 (defcustom whisper-insert-text-at-point t
@@ -373,8 +390,11 @@ downstream functions through parameters which could have done the trick."
 
       (when (and (not (file-exists-p (concat base (if (eq system-type 'windows-nt) "main.exe" "main"))))
                  (not (string-equal "interrupt\n" status)))
-        (if (yes-or-no-p (format "Inference engine whisper.cpp is not installed, install it at %s ?"
-                                 whisper--install-path))
+
+        (when (eq whisper-install-whispercpp 'manual)
+          (error (format "Couldn't find whisper.cpp install at: %s" base)))
+
+        (if (yes-or-no-p (format "Couldn't find whisper.cpp, install it at: %s ?" base))
             (let ((make-commands
                    (concat
                     "mkdir -p " whisper-install-directory " && "
@@ -465,15 +485,23 @@ This is a dwim function that does different things depending on current state:
 	(interrupt-process proc)))
      (t
       (setq whisper--point-buffer (current-buffer))
-      (whisper--check-model-consistency)
       (run-hooks 'whisper-pre-process-hook)
+      (when whisper-install-whispercpp
+        (whisper--check-model-consistency))
       (setq-default whisper--ffmpeg-input-file nil)
       (when (equal arg '(4))
         (when-let ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
           (unless (file-readable-p file)
             (error "Media file doesn't exist or isn't readable"))
           (setq-default whisper--ffmpeg-input-file file)))
-      (whisper--check-install-and-run nil "whisper-start")))))
+      (if whisper-install-whispercpp
+          (whisper--check-install-and-run nil "whisper-start")
+        ;; if user is bringing their own inference engine, we at least check the command exists
+        (let ((command (car (whisper-command whisper--temp-file))))
+          (if (or (file-exists-p command)
+                  (executable-find command))
+              (whisper--record-audio)
+            (error (format "Couldn't find %s in PATH, nor is it a file" command)))))))))
 
 ;;;###autoload
 (defun whisper-file ()

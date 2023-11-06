@@ -45,6 +45,7 @@ _Note for MacOS users_: If whisper.el is failing silently, it might be because E
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
 - =whisper-enable-speed-up=: Default is =nil=. This can supposedly speed up transcribing up to 2x, at the expense of some accuracy loss. You should experiment if it works for you, specially when using larger models. _Note_: As of Nov 2023, setting this option does nothing. It was recently [[https://github.com/ggerganov/whisper.cpp/commit/7e54df414e415c9ebb37ffeedca78685173c20f4][disabled by upstream]] "temporarily" due to bugs, we will see if it comes back.
 - =whisper-quantize=: Whether to quantize the model (default =nil=). Non-nil valid values are: q4_0, q4_1, q5_0, q5_1, q8_0. For an explanation of what quantization means, [[*Quantize the model][see below]]. If it's defined, whisper.el will automatically quantize the model before using that.
+- =whisper-install-whispercpp=: By default the installation of whisper.cpp is done automatically. If you are on a platform where our automatic install fails, but you are able to do so manually at =whisper-install-directory=, you can set this to ='manual= to ensure we don't try and fail to install it automatically. Also if you are planning to not use whisper.cpp at all by overriding =whisper-command= ([[*Use something other than whisper.cpp][see below]]), you can just set this to =nil= to ensure no whisper.cpp related runtime checks and downloads will be performed.
 
 Additionally, depending on your input device and system you will need to modify these variables to get recording to work:
 
@@ -98,6 +99,12 @@ Quantization is a technique to reduce the computational and memory costs of runn
 **** Re-compile whisper.cpp for hardware acceleration
 
 Offloading the encoder inference to hardware or optimised external libraries may result in speed-up. There are options to use: Core ML (for Apple hardware), cuBLAS (for NVIDIA GPU), OpenVINO (Intel CPU/GPU), CLBlast (for GPUs that support OpenCL), OpenBLAS (an optimised matrix processing library for CPU). Consult [[https://github.com/ggerganov/whisper.cpp][whisper.cpp README]] for how to re-compile whisper.cpp to enable those.
+
+**** Use something other than whisper.cpp
+
+If you think there is something else you want to use, you have the option to override the =whisper-command= function definition (or define an overriding advice). This function takes a path to input audio file as argument, and returns a list denoting the command to be run instead of whisper.cpp. You can use the variables described above to devise the command. The wiki contains a recipe that shows how to use [[https://github.com/Softcatala/whisper-ctranslate2][whisper-ctranslate2]] with whisper.el. This client is compatible to OpenAI's original one, so porting the recipe to use the original client should be possible.
+
+Note that when you are using something other than whisper.cpp, the onus is on you to make sure the target program is properly installed and relevant model files for it are downloaded beforehand. We don't support anything other than whisper.cpp so any problems integrating them with whisper.el that's specific to those software may strain our ability to address.
 
 *** Caveats
 
