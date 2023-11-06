@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.5
+;; Version: 0.1.6
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -83,6 +83,25 @@ When non-English, use generic model (without .en suffix)"
 (defcustom whisper-translate nil
   "Whether to translate to English first, before transcribing."
   :type 'boolean
+  :group 'whisper)
+
+(defcustom whisper-quantize nil
+  "Whether to use quantized version of the model in whisper.cpp.
+
+Quantization is a technique to reduce the computational and memory costs of
+running inference by representing the weights and activations with low-precision
+data types.  This sacrifices precision for resource efficiency.  The idea is
+that quantized version of bigger model may afford you to use it (if you are RAM
+constrained e.g.) with some penalty, while still being better than the smaller
+model you would be using otherwise.
+
+Valid values are (from lowest to highest quality):
+- q4_0
+- q4_1
+- q5_0
+- q5_1
+- q8_0"
+  :type '(choice integer (const nil))
   :group 'whisper)
 
 (defcustom whisper-insert-text-at-point t
@@ -174,17 +193,23 @@ current buffer."
     "-ar" "16000"
     "-y" ,output-file))
 
-(defun whisper--transcribe-command (input-file)
-  "Produces whisper.cpp command to be run given location of INPUT-FILE."
+(defun whisper-command (input-file)
+  "Produces whisper.cpp command to be run on the INPUT-FILE.
+
+If you want to use something other than whisper.cpp, you should override this
+function to produce the command for the inference engine of your choice."
   (let ((base (expand-file-name (file-name-as-directory whisper--install-path))))
     `(,(concat base (if (eq system-type 'windows-nt) "main.exe" "main"))
       ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
-      ,@(when whisper-enable-speed-up '("--speed-up"))
+      ;; ,@(when whisper-enable-speed-up '("--speed-up"))
       ,@(when whisper-translate '("--translate"))
       "--language" ,whisper-language
-      "--model" ,(concat base "models/" "ggml-" whisper-model ".bin")
+      "--model" ,(whisper--model-file whisper-quantize)
       "--no-timestamps"
       "--file" ,input-file)))
+
+(defalias 'whisper--transcribe-command 'whisper-command)
+(make-obsolete 'whisper--transcribe-command 'whisper-command "0.1.6")
 
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
@@ -218,7 +243,7 @@ current buffer."
   (setq whisper--transcribing-process
         (make-process
          :name "whisper-transcribing"
-         :command (whisper--transcribe-command whisper--temp-file)
+         :command (whisper-command whisper--temp-file)
          :connection-type nil
          :buffer (get-buffer-create whisper--stdout-buffer-name)
          :stderr (get-buffer-create whisper--stderr-buffer-name)
@@ -268,10 +293,22 @@ current buffer."
                    "https://github.com/ggerganov/whisper.cpp/blob/master/whisper.cpp")))
 
   (let ((model-pattern (rx (seq (or "tiny" "base" "small" "medium" (seq "large" (opt "-v1")))
-                                (opt (seq "." (= 2 (any "a-z"))))))))
+                                (opt (seq "." (= 2 (any "a-z")))))))
+        (quantization-pattern (rx (or "q4_0" "q4_1" "q5_0" "q5_1" "q8_0"))))
     (unless (string-match-p model-pattern whisper-model)
       (error (concat "Speech recognition model " whisper-model " not recognised. For the list, see: "
-                     "https://github.com/ggerganov/whisper.cpp/tree/master/models")))))
+                     "https://github.com/ggerganov/whisper.cpp/tree/master/models")))
+    (when whisper-quantize
+      (unless (string-match-p quantization-pattern whisper-quantize)
+        (error "Quantization format not recognized")))))
+
+(defun whisper--model-file (quantized)
+  "Return path of QUANTIZED model file relative to `whisper-install-directory'."
+  (let ((base (concat
+               (expand-file-name (file-name-as-directory whisper-install-directory))
+               "whisper.cpp/"))
+        (name (if quantized (concat whisper-model "-" whisper-quantize) whisper-model)))
+    (concat base "models/ggml-" name ".bin")))
 
 (defun whisper--check-install-and-run (buffer status)
   "Run whisper after ensuring installation correctness.
@@ -351,7 +388,7 @@ downstream functions through parameters which could have done the trick."
               (throw 'early-return nil))
           (error "Needs whisper.cpp to be installed")))
 
-      (when (and (not (file-exists-p (concat base "models/ggml-" whisper-model ".bin")))
+      (when (and (not (file-exists-p (whisper--model-file nil)))
                  (not (string-equal "interrupt\n" status)))
         (if (yes-or-no-p (format "Speech recognition model \"%s\" isn't available, download now?" whisper-model))
             (let ((make-commands
@@ -363,6 +400,20 @@ downstream functions through parameters which could have done the trick."
               (compile make-commands)
               (throw 'early-return nil))
           (error "Needs speech recognition model to run whisper")))
+
+      (when (and whisper-quantize
+                 (not (file-exists-p (whisper--model-file t)))
+                 (not (string-equal "interrupt\n" status)))
+        (let ((make-commands
+               (concat
+                "cd " base " && "
+                "make quantize" " && "
+                "echo 'Quantizing the model....'" " && "
+                "./quantize " (whisper--model-file nil) " " (whisper--model-file t) " " whisper-quantize)))
+          (setq whisper--compilation-buffer (get-buffer-create whisper--compilation-buffer-name))
+          (add-hook 'compilation-finish-functions #'whisper--check-install-and-run)
+          (compile make-commands)
+          (throw 'early-return nil)))
 
       (when (string-equal "interrupt\n" status)
         ;; double check to be sure before cleaning up
@@ -411,7 +462,7 @@ This is a dwim function that does different things depending on current state:
      ((and (buffer-live-p whisper--compilation-buffer)
            (process-live-p (get-buffer-process whisper--compilation-buffer)))
       (when-let ((proc (get-buffer-process whisper--compilation-buffer)))
-	      (interrupt-process proc)))
+	(interrupt-process proc)))
      (t
       (setq whisper--point-buffer (current-buffer))
       (whisper--check-model-consistency)

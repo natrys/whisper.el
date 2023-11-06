@@ -40,10 +40,11 @@ _Note for MacOS users_: If whisper.el is failing silently, it might be because E
 - =whisper-language=: Specify your spoken language. Default is =en=. For all possible short-codes: [[https://github.com/ggerganov/whisper.cpp/blob/aa6adda26e1ee9843dddb013890e3312bee52cfe/whisper.cpp#L31][see here]]. You can also set it to =auto= to allow whisper.cpp to infer the language from first 30 seconds of audio. How well whisper works will vary depending on the language. Some scores could be found in the original paper, or [[https://github.com/openai/whisper#available-models-and-languages][here]].
 - =whisper-model=: Which language model to use. Default is =base=. Values are: tiny, base, small, medium, large-v1, large. Bigger models are more accurate, but takes more time and more RAM to run (aside from more disk space and download size), see: [[https://github.com/ggerganov/whisper.cpp#memory-usage][resource requirements]]. Note that these come with .en variants that might be faster, but are for English only.
 - =whisper-translate=: Default =nil= means transcription output language is same as spoken language. Setting it to =t= translates it to English first.
+- =whisper-insert-text-at-point=: By default whisper.el inserts the transcribed text at the point where =whisper-run= or =whisper-file= was invoked. But if you set this to =nil=, the text will be displayed in a separate buffer instead.
 - =whisper-use-threads=: Default =nil= means let whisper.cpp choose appropriate value (which it sets with formula min(4, num_of_cores)). If you want to use more than 4 threads (as you have more than 4 cpu cores), set this number manually.
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
 - =whisper-enable-speed-up=: Default is =nil=. This can supposedly speed up transcribing up to 2x, at the expense of some accuracy loss. You should experiment if it works for you, specially when using larger models. _Note_: As of Nov 2023, setting this option does nothing. It was recently [[https://github.com/ggerganov/whisper.cpp/commit/7e54df414e415c9ebb37ffeedca78685173c20f4][disabled by upstream]] "temporarily" due to bugs, we will see if it comes back.
-- =whisper-insert-text-at-point=: By default whisper.el inserts the transcribed text at the point where =whisper-run= or =whisper-file= was invoked. But if you set this to =nil=, the text will be displayed in a separate buffer instead.
+- =whisper-quantize=: Whether to quantize the model (default =nil=). Non-nil valid values are: q4_0, q4_1, q5_0, q5_1, q8_0. For an explanation of what quantization means, [[*Quantize the model][see below]]. If it's defined, whisper.el will automatically quantize the model before using that.
 
 Additionally, depending on your input device and system you will need to modify these variables to get recording to work:
 
@@ -81,6 +82,22 @@ There are couple of hooks provided for user defined actions:
             ;; add a paragraph break every 5 sentences
             (whisper--break-sentences 5)))
   #+end_src
+
+*** Performance Guide for Advanced Users
+
+By default, whisper.cpp performance on CPU is likely good enough for most people and most use cases. However if it's not good enough for you, here are some things you could do:
+
+**** Update whisper.cpp
+
+The upstream whisper.cpp is continuously improving. If you are using an old version, updating whisper.cpp is the first thing you could try. Simplest way to do that is to delete your the whisper.cpp installation folder and re-run the command, which will reinstall from latest commit.
+
+**** Quantize the model
+
+Quantization is a technique to reduce the computational and memory costs of running inference by representing the weights and activations with low-precision data types. This sacrifices precision for resource efficiency. The idea is that quantized version of a bigger model may afford you to use it (if you are RAM constrained e.g.) with some penalty or accuracy, while still being more accurate hopefully than the smaller model you would be using otherwise.
+
+**** Re-compile whisper.cpp for hardware acceleration
+
+Offloading the encoder inference to hardware or optimised external libraries may result in speed-up. There are options to use: Core ML (for Apple hardware), cuBLAS (for NVIDIA GPU), OpenVINO (Intel CPU/GPU), CLBlast (for GPUs that support OpenCL), OpenBLAS (an optimised matrix processing library for CPU). Consult [[https://github.com/ggerganov/whisper.cpp][whisper.cpp README]] for how to re-compile whisper.cpp to enable those.
 
 *** Caveats
 
