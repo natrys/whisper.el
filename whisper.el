@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.1.7
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -29,6 +29,8 @@
 ;; See: https://github.com/ggerganov/whisper.cpp
 ;;
 ;;; Code:
+
+(require 'cl-lib)
 
 ;;; User facing options
 
@@ -133,6 +135,11 @@ they want to."
   :type 'boolean
   :group 'whisper)
 
+(defcustom whisper-show-progress-in-mode-line t
+  "Whether to show transcription progress in mode line."
+  :type 'boolean
+  :group 'whisper)
+
 (defcustom whisper-pre-process-hook '(whisper--check-buffer-read-only-p)
   "Hook run before whisper.el does anything."
   :type 'hook
@@ -184,10 +191,18 @@ current buffer."
 
 (defvar whisper--ffmpeg-input-file nil)
 
-;; Error out if current buffer is read-only
+(defvar whisper--progress-level "0")
+
+(defvar whisper--mode-line-recording-indicator
+  (propertize "" 'face font-lock-warning-face))
+
+(defvar whisper--mode-line-transcribing-indicator
+  (propertize "" 'face font-lock-warning-face))
+
 (defun whisper--check-buffer-read-only-p ()
+  "Error out if current buffer is read-only."
   (when (and whisper-insert-text-at-point buffer-read-only)
-    (error "Buffer is read-only, can't insert text here.")))
+    (error "Buffer is read-only, can't insert text here")))
 
 ;; Maybe sox would be a lighter choice for something this simple?
 (defun whisper--record-command (output-file)
@@ -217,11 +232,13 @@ current buffer."
 
 If you want to use something other than whisper.cpp, you should override this
 function to produce the command for the inference engine of your choice."
+  (whisper--setup-mode-line :show 'transcribing)
   (let ((base (expand-file-name (file-name-as-directory whisper--install-path))))
     `(,(concat base (if (eq system-type 'windows-nt) "main.exe" "main"))
       ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
       ;; ,@(when whisper-enable-speed-up '("--speed-up"))
       ,@(when whisper-translate '("--translate"))
+      ,@(when whisper-show-progress-in-mode-line '("--print-progress"))
       "--language" ,whisper-language
       "--model" ,(whisper--model-file whisper-quantize)
       "--no-timestamps"
@@ -230,6 +247,32 @@ function to produce the command for the inference engine of your choice."
 (defalias 'whisper--transcribe-command 'whisper-command)
 (make-obsolete 'whisper--transcribe-command 'whisper-command "0.1.6")
 
+(defun whisper--mode-line-indicator (phase)
+  "Determine what to show in mode line depending on PHASE."
+  (if (eq phase 'recording)
+      whisper--mode-line-recording-indicator
+    (concat whisper--mode-line-transcribing-indicator
+            whisper--progress-level "%%%%")))
+
+(defun whisper--setup-mode-line (command phase)
+  "Set up PHASE appropriate indicator in the mode line.
+
+Depending on the COMMAND we either show the indicator or hide it."
+  (when whisper-show-progress-in-mode-line
+    (let ((indicator `(t (:eval (whisper--mode-line-indicator (quote ,phase))))))
+      (if (eq command :show)
+          (cl-pushnew indicator global-mode-string :test #'equal)
+        (setf global-mode-string (remove indicator global-mode-string))
+        (setq whisper--progress-level "0")))
+    (force-mode-line-update)))
+
+(defun whisper--get-whispercpp-progress (_process output)
+  "Notify user of transcription progress by parsing whisper.cpp OUTPUT."
+  (let ((marker "whisper_print_progress_callback: progress ="))
+    (when (string-match (rx-to-string `(seq bol ,marker (* blank) (group (+ digit)) "%")) output)
+      (setq whisper--progress-level (match-string 1 output))
+      (force-mode-line-update))))
+
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
   (when whisper-insert-text-at-point
@@ -237,7 +280,8 @@ function to produce the command for the inference engine of your choice."
       (setq whisper--marker (point-marker))))
   (if whisper--ffmpeg-input-file
       (message "[*] Pre-processing media file")
-    (message "[*] Recording audio"))
+    (message "[*] Recording audio")
+    (whisper--setup-mode-line :show 'recording))
   (setq whisper--recording-process
         (make-process
          :name "whisper-recording"
@@ -245,6 +289,7 @@ function to produce the command for the inference engine of your choice."
          :connection-type nil
          :buffer nil
          :sentinel (lambda (_process event)
+                     (whisper--setup-mode-line :hide 'recording)
                      (cond ((or (string-equal "finished\n" event)
                                 ;; this is would be sane
                                 (string-equal "terminated\n" event)
@@ -265,39 +310,45 @@ function to produce the command for the inference engine of your choice."
          :command (whisper-command whisper--temp-file)
          :connection-type nil
          :buffer (get-buffer-create whisper--stdout-buffer-name)
-         :stderr (get-buffer-create whisper--stderr-buffer-name)
+         :stderr (if whisper-show-progress-in-mode-line
+                     (make-pipe-process
+                      :name "whisper-stderr"
+                      :filter #'whisper--get-whispercpp-progress)
+                   (get-buffer-create whisper--stderr-buffer-name))
          :coding 'utf-8
          :sentinel (lambda (_process event)
                      (unwind-protect
-                         (let ((whisper--stdout-buffer (get-buffer whisper--stdout-buffer-name)))
+                         (when-let* ((whisper--stdout-buffer (get-buffer whisper--stdout-buffer-name))
+                                     (finished (and (buffer-live-p whisper--stdout-buffer)
+                                                    (string-equal "finished\n" event))))
                            (with-current-buffer whisper--stdout-buffer
-                             (when (string-equal "finished\n" event)
-                               (goto-char (point-min))
-                               (skip-chars-forward " \n")
-                               (when (> (point) (point-min))
-                                 (delete-region (point-min) (point)))
-                               (goto-char (point-max))
-                               (skip-chars-backward " \n")
-                               (when (> (point-max) (point))
-                                 (delete-region (point) (point-max)))
-                               (when (= (buffer-size) 0)
-                                 (error "whisper command produced no output"))
-                               (goto-char (point-min))
-                               (run-hooks 'whisper-post-process-hook)
-                               (if whisper-insert-text-at-point
-                                   (with-current-buffer (marker-buffer whisper--marker)
-                                     (goto-char whisper--marker)
-                                     (insert-buffer-substring whisper--stdout-buffer)
-                                     (goto-char whisper--marker))
-                                 (with-current-buffer
-                                     (get-buffer-create
-                                      (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
+                             (goto-char (point-min))
+                             (skip-chars-forward " \n")
+                             (when (> (point) (point-min))
+                               (delete-region (point-min) (point)))
+                             (goto-char (point-max))
+                             (skip-chars-backward " \n")
+                             (when (> (point-max) (point))
+                               (delete-region (point) (point-max)))
+                             (when (= (buffer-size) 0)
+                               (error "Whisper command produced no output"))
+                             (goto-char (point-min))
+                             (run-hooks 'whisper-post-process-hook)
+                             (if whisper-insert-text-at-point
+                                 (with-current-buffer (marker-buffer whisper--marker)
+                                   (goto-char whisper--marker)
                                    (insert-buffer-substring whisper--stdout-buffer)
-                                   (display-buffer (current-buffer)))))))
+                                   (goto-char whisper--marker))
+                               (with-current-buffer
+                                   (get-buffer-create
+                                    (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
+                                 (insert-buffer-substring whisper--stdout-buffer)
+                                 (display-buffer (current-buffer))))))
                        (set-marker whisper--marker nil)
                        (setq whisper--point-buffer nil)
                        (kill-buffer whisper--stdout-buffer-name)
-                       (kill-buffer whisper--stderr-buffer-name)
+                       (unless whisper-show-progress-in-mode-line (kill-buffer whisper--stderr-buffer-name))
+                       (whisper--setup-mode-line :hide 'transcribing)
                        (message nil))))))
 
 (defun whisper--check-model-consistency ()
