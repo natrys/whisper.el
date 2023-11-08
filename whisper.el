@@ -76,7 +76,9 @@ might speed up transcribing."
 (defcustom whisper-language "en"
   "Set spoken language for audio.
 
-When non-English, use generic model (without .en suffix)"
+When dealing with unknown language, set this to `auto'.
+
+Be sure to use generic model (without .en suffix) when language is not English."
   :type 'string
   :group 'whisper)
 
@@ -109,16 +111,16 @@ Valid values are (from lowest to highest quality):
 
 By default whisper.el compiles whisper.cpp automatically.   But if you are on a
 platform where our automatic whisper.cpp install doesn't work but you are able
-to do so manually, you can set this to 'manual to skip our try (and failure) to
-install it automatically.  Note that in case a functional install is found at
-`whisper-install-directory', we can still do model download, quantization
+to do so manually, you can set this to `manual' to skip our try (and failure)
+to install it automatically.  Note that in case a functional install is found
+at `whisper-install-directory', we can still do model download, quantization
 automatically.
 
 But if you are planning to use something other than whisper.cpp entirely, as
 such don't want to install it nor run checks for it, you may opt out of
 whisper.cpp as a whole by setting this to nil.  In that case it's your
 responsibility to override `whisper-command' with appropriate function."
-  :type '(choice boolean (const 'manual))
+  :type '(choice boolean (const manual))
   :group 'whisper)
 
 (defcustom whisper-insert-text-at-point t
@@ -306,10 +308,10 @@ function to produce the command for the inference engine of your choice."
 
   (unless (or (= 2 (length whisper-language))
               (string-equal "auto" whisper-language))
-    (error (concat "Unknown language shortcode. For the list, see: "
+    (error (concat "Unknown language shortcode. If unsure use 'auto'. For full list, see: "
                    "https://github.com/ggerganov/whisper.cpp/blob/master/whisper.cpp")))
 
-  (let ((model-pattern (rx (seq (or "tiny" "base" "small" "medium" (seq "large" (opt "-v1")))
+  (let ((model-pattern (rx (seq (or "tiny" "base" "small" "medium" (seq "large" (opt (seq "-v" (any "1-2")))))
                                 (opt (seq "." (= 2 (any "a-z")))))))
         (quantization-pattern (rx (or "q4_0" "q4_1" "q5_0" "q5_1" "q8_0"))))
     (unless (string-match-p model-pattern whisper-model)

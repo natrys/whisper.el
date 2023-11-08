@@ -80,8 +80,7 @@ There are couple of hooks provided for user defined actions:
 
 (add-hook 'whisper-post-process-hook
           (lambda ()
-            ;; add a paragraph break every 5 sentences
-            (whisper--break-sentences 5)))
+            (whisper--break-sentences 5))) ;; add a paragraph break every 5 sentences
   #+end_src
 
 *** Performance Guide for Advanced Users
