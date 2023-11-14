@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.2.0
+;; Version: 0.2.1
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -191,6 +191,8 @@ current buffer."
 
 (defvar whisper--ffmpeg-input-file nil)
 
+(defvar whisper--using-whispercpp nil)
+
 (defvar whisper--progress-level "0")
 
 (defvar whisper--mode-line-recording-indicator
@@ -232,7 +234,6 @@ current buffer."
 
 If you want to use something other than whisper.cpp, you should override this
 function to produce the command for the inference engine of your choice."
-  (whisper--setup-mode-line :show 'transcribing)
   (let ((base (expand-file-name (file-name-as-directory whisper--install-path))))
     `(,(concat base (if (eq system-type 'windows-nt) "main.exe" "main"))
       ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
@@ -251,15 +252,16 @@ function to produce the command for the inference engine of your choice."
   "Determine what to show in mode line depending on PHASE."
   (if (eq phase 'recording)
       whisper--mode-line-recording-indicator
-    (concat whisper--mode-line-transcribing-indicator
-            whisper--progress-level "%%%%")))
+    (if whisper--using-whispercpp
+        '(:eval (concat whisper--mode-line-transcribing-indicator whisper--progress-level "%%%%"))
+      whisper--mode-line-transcribing-indicator)))
 
 (defun whisper--setup-mode-line (command phase)
   "Set up PHASE appropriate indicator in the mode line.
 
 Depending on the COMMAND we either show the indicator or hide it."
   (when whisper-show-progress-in-mode-line
-    (let ((indicator `(t (:eval (whisper--mode-line-indicator (quote ,phase))))))
+    (let ((indicator `(t ,(whisper--mode-line-indicator phase))))
       (if (eq command :show)
           (cl-pushnew indicator global-mode-string :test #'equal)
         (setf global-mode-string (remove indicator global-mode-string))
@@ -272,6 +274,13 @@ Depending on the COMMAND we either show the indicator or hide it."
     (when (string-match (rx-to-string `(seq bol ,marker (* blank) (group (+ digit)) "%")) output)
       (setq whisper--progress-level (match-string 1 output))
       (force-mode-line-update))))
+
+(defun whisper--using-whispercpp-p ()
+  "Crude way to check we are in fact using whisper.cpp."
+  (let ((command (car (whisper-command whisper--temp-file))))
+    (or (string-match-p (rx-to-string '(seq "whisper.cpp" (any "/\\") "main")) command)
+        ;; for the staunch Nix user
+        (string-equal command "whisper-cpp"))))
 
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
@@ -304,13 +313,15 @@ Depending on the COMMAND we either show the indicator or hide it."
 (defun whisper--transcribe-audio ()
   "Start audio transcribing process in the background."
   (message "[-] Transcribing/Translating audio")
+  (setq whisper--using-whispercpp (whisper--using-whispercpp-p))
+  (whisper--setup-mode-line :show 'transcribing)
   (setq whisper--transcribing-process
         (make-process
          :name "whisper-transcribing"
          :command (whisper-command whisper--temp-file)
          :connection-type nil
          :buffer (get-buffer-create whisper--stdout-buffer-name)
-         :stderr (if whisper-show-progress-in-mode-line
+         :stderr (if (and whisper-show-progress-in-mode-line whisper--using-whispercpp)
                      (make-pipe-process
                       :name "whisper-stderr"
                       :filter #'whisper--get-whispercpp-progress)
@@ -334,16 +345,17 @@ Depending on the COMMAND we either show the indicator or hide it."
                                (error "Whisper command produced no output"))
                              (goto-char (point-min))
                              (run-hooks 'whisper-post-process-hook)
-                             (if whisper-insert-text-at-point
-                                 (with-current-buffer (marker-buffer whisper--marker)
-                                   (goto-char whisper--marker)
+                             (when (> (buffer-size) 0)
+                               (if whisper-insert-text-at-point
+                                   (with-current-buffer (marker-buffer whisper--marker)
+                                     (goto-char whisper--marker)
+                                     (insert-buffer-substring whisper--stdout-buffer)
+                                     (goto-char whisper--marker))
+                                 (with-current-buffer
+                                     (get-buffer-create
+                                      (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
                                    (insert-buffer-substring whisper--stdout-buffer)
-                                   (goto-char whisper--marker))
-                               (with-current-buffer
-                                   (get-buffer-create
-                                    (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
-                                 (insert-buffer-substring whisper--stdout-buffer)
-                                 (display-buffer (current-buffer))))))
+                                   (display-buffer (current-buffer)))))))
                        (set-marker whisper--marker nil)
                        (setq whisper--point-buffer nil)
                        (kill-buffer whisper--stdout-buffer-name)
@@ -547,6 +559,7 @@ This is a dwim function that does different things depending on current state:
           (unless (file-readable-p file)
             (error "Media file doesn't exist or isn't readable"))
           (setq-default whisper--ffmpeg-input-file file)))
+      (setq whisper--using-whispercpp nil)
       (if whisper-install-whispercpp
           (whisper--check-install-and-run nil "whisper-start")
         ;; if user is bringing their own inference engine, we at least check the command exists
