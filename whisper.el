@@ -371,14 +371,14 @@ Depending on the COMMAND we either show the indicator or hide it."
                                      (get-buffer-create
                                       (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
                                    (insert-buffer-substring whisper--stdout-buffer)
-                                   (display-buffer (current-buffer))))
-                               (run-hooks 'whisper-post-insert-hook))))
+                                   (display-buffer (current-buffer)))))))
                        (set-marker whisper--marker nil)
                        (setq whisper--point-buffer nil)
                        (kill-buffer whisper--stdout-buffer-name)
                        (unless whisper-show-progress-in-mode-line (kill-buffer whisper--stderr-buffer-name))
                        (whisper--setup-mode-line :hide 'transcribing)
-                       (message nil))))))
+                       (message nil)
+                       (run-hooks 'whisper-post-insert-hook))))))
 
 (defun whisper--check-model-consistency ()
   "Check if chosen language and model are consistent."
