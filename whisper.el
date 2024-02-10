@@ -163,6 +163,13 @@ as its current buffer, and with point set to beginning of that buffer."
   :type 'hook
   :group 'whisper)
 
+(defcustom whisper-post-insert-hook nil
+  "Hook run after whisper command has inserted the transcription.
+
+This hook will be run from the buffer in which the transcription was inserted."
+  :type 'hook
+  :group 'whisper)
+
 ;;; Internal variables
 
 (defvar whisper--stdout-buffer-name "*whisper-stdout*")
@@ -375,7 +382,8 @@ Depending on the COMMAND we either show the indicator or hide it."
                        (kill-buffer whisper--stdout-buffer-name)
                        (unless whisper-show-progress-in-mode-line (kill-buffer whisper--stderr-buffer-name))
                        (whisper--setup-mode-line :hide 'transcribing)
-                       (message nil))))))
+                       (message nil)
+                       (run-hooks 'whisper-post-insert-hook))))))
 
 (defun whisper--check-model-consistency ()
   "Check if chosen language and model are consistent."
