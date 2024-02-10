@@ -135,6 +135,14 @@ they want to."
   :type 'boolean
   :group 'whisper)
 
+(defcustom whisper-return-cursor-to-start t
+  "Whether to re-position the cursor after transcription.
+
+When non-nil, the cursor is returned to the original invocation point.
+Otherwise, the cursor remains at the end of the inserted transcription."
+  :type 'boolean
+  :group 'whisper)
+
 (defcustom whisper-show-progress-in-mode-line t
   "Whether to show transcription progress in mode line."
   :type 'boolean
@@ -350,7 +358,8 @@ Depending on the COMMAND we either show the indicator or hide it."
                                    (with-current-buffer (marker-buffer whisper--marker)
                                      (goto-char whisper--marker)
                                      (insert-buffer-substring whisper--stdout-buffer)
-                                     (goto-char whisper--marker))
+                                     (when whisper-return-cursor-to-start
+                                       (goto-char whisper--marker)))
                                  (with-current-buffer
                                      (get-buffer-create
                                       (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
