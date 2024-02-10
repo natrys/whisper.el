@@ -63,8 +63,8 @@ Pulseaudio and PipeWire users who haven't further configured their =default= sou
 
 There are couple of hooks provided for user defined actions:
 
-- whisper-pre-process-hook: Functions here are run before anything else. Helpful to make ensure suitable condition to run whisper (e.g. check if buffer is read-only).
-- whisper-post-process-hook: If you want to do some text formatting or transformation on the whisper output, add a function here. For example, the default output is one big line of text. If you want to do something like adding a paragraph break every N sentences, you could do something like:
+- =whisper-pre-process-hook=: Functions here are run before anything else. Helpful to make ensure suitable condition to run whisper (e.g. check if buffer is read-only).
+- =whisper-post-process-hook=: If you want to do some text formatting or transformation on the whisper output, add a function here. For example, the default output is one big line of text. If you want to do something like adding a paragraph break every N sentences, you could do something like:
   #+begin_src elisp
 (defun whisper--break-sentences (n)
   "Put a paragraph break every N sentences."
@@ -82,6 +82,17 @@ There are couple of hooks provided for user defined actions:
 (add-hook 'whisper-post-process-hook
           (lambda ()
             (whisper--break-sentences 5))) ;; add a paragraph break every 5 sentences
+  #+end_src
+- =whisper-post-insert-hook=: These functions are run after transcription is completed and the text has been inserted into the buffer. For example, you can pipe the output into another function:
+  #+begin_src elisp
+(defun pipe-transcribed-audio-to-foo ()
+  "Pipe whisper's transcription output into `foo'."
+  (let ((transcription (buffer-substring (line-beginning-position)
+                                         (line-end-position))))
+    (foo transcription)))
+
+(add-hook 'whisper-post-insert-hook
+          #'pipe-transcribed-audio-to-foo)
   #+end_src
 
 *** Performance Guide for Advanced Users
