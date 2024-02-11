@@ -157,9 +157,9 @@ Otherwise, the cursor remains at the end of the inserted transcription."
   "Hook run after whisper command finishes producing output.
 
 If you want to transform the command output text in some way before they are
-inserted into the original buffer, add your processing function here.  They
-will be run with a buffer containing the whisper command output text as their
-current buffer."
+inserted into the original buffer, add your function here.  Each function in
+the hook will be run in a buffer containing the whisper command output text
+as its current buffer, and with point set to beginning of that buffer."
   :type 'hook
   :group 'whisper)
 
@@ -352,7 +352,12 @@ Depending on the COMMAND we either show the indicator or hide it."
                              (when (= (buffer-size) 0)
                                (error "Whisper command produced no output"))
                              (goto-char (point-min))
-                             (run-hooks 'whisper-post-process-hook)
+                             (run-hook-wrapped 'whisper-post-process-hook
+                                               (lambda (f)
+                                                 (with-current-buffer whisper--stdout-buffer
+                                                   (save-excursion
+                                                     (funcall f)))
+                                                 nil))
                              (when (> (buffer-size) 0)
                                (if whisper-insert-text-at-point
                                    (with-current-buffer (marker-buffer whisper--marker)

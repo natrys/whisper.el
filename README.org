@@ -69,16 +69,14 @@ There are couple of hooks provided for user defined actions:
   #+begin_src elisp
 (defun whisper--break-sentences (n)
   "Put a paragraph break every N sentences."
-  (save-excursion
-    (goto-char (point-min))
-    (catch 'return
-      (while t
-        (dotimes (_ n)
-          (forward-sentence 1)
-          (when (eobp) (throw 'return nil)))
-        (insert "\n\n")
-        (when (= (char-after) ?\ )
-          (delete-horizontal-space))))))
+  (catch 'return
+    (while t
+      (dotimes (_ n)
+        (forward-sentence 1)
+        (when (eobp) (throw 'return nil)))
+      (insert "\n\n")
+      (when (= (char-after) ?\ )
+        (delete-horizontal-space)))))
 
 (add-hook 'whisper-post-process-hook
           (lambda ()
