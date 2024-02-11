@@ -430,21 +430,11 @@ Small Downside of re-using same function is that we need to differentiate
 whether this run is a callback or first normal call, that's what the made up
 status \"whisper-start\" does.
 
-But the bigger issue I didn't think of at first is that callback model breaks
-dynamic binding because call stack is disrupted. Work needs to happen when we
-are coming from callbacks run from some random hook.  But then the implication
-is that in such runs the free variables are no longer shadowed in dynamic scope,
-so lookup fallbacks to global scope to initial non-useful values.  The messy
-but easy to write workaround is to use setq-default everywhere.  That might
-require reverting values in a different part of code, such spooky entanglements
-are terrible although I didn't need to do that here.
-
-Anyway, I chose that thinking passing values via function parameter is not
-possible here because we are locked to this argument signature.  But that's
-obviously not true, the entire callback could be defined inside a lexical scope
-using something like cl-label and then inside the body the free variable would
-be bound to the correct non-global value, and then they could be passed to the
-downstream functions through parameters which could have done the trick."
+The unfortunate price of asynchronicity is that this breaks dynamic binding
+because call stack is disrupted, callbacks are executed at a later time outside
+of the original dynamic context.  The fault not only lies here, but ultimately
+`make-process' itself is async, so it will likely take some insane hacks that
+escapes me right now, to get let bindings work like synchronous code."
   (catch 'early-return
     (unless (string-equal "whisper-start" status)
       ;; shouldn't do anything when triggered by compilation buffers from elsewhere
@@ -542,7 +532,7 @@ This is a dwim function that does different things depending on current state:
 - When inference engine (whisper.cpp) isn't installed, installs it first.
 - When speech recognition model isn't available, downloads it.
 - When installation/download is already in progress, cancels those.
-- When installation is sound, starts recording audio.
+- When installation is valid, starts recording audio.
 - When recording is in progress, stops it and starts transcribing.
 - When transcribing is in progress, cancels it."
   (interactive "P")
