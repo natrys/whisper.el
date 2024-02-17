@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.2.1
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -148,12 +148,14 @@ Otherwise, the cursor remains at the end of the inserted transcription."
   :type 'boolean
   :group 'whisper)
 
-(defcustom whisper-pre-process-hook '(whisper--check-buffer-read-only-p)
+(define-obsolete-variable-alias 'whisper-pre-process-hook 'whisper-before-transcription-hook "0.3.0")
+(defcustom whisper-before-transcription-hook '(whisper--check-buffer-read-only-p)
   "Hook run before whisper.el does anything."
   :type 'hook
   :group 'whisper)
 
-(defcustom whisper-post-process-hook nil
+(define-obsolete-variable-alias 'whisper-post-process-hook 'whisper-after-transcription-hook "0.3.0")
+(defcustom whisper-after-transcription-hook nil
   "Hook run after whisper command finishes producing output.
 
 If you want to transform the command output text in some way before they are
@@ -163,7 +165,7 @@ as its current buffer, and with point set to beginning of that buffer."
   :type 'hook
   :group 'whisper)
 
-(defcustom whisper-post-insert-hook nil
+(defcustom whisper-after-insert-hook nil
   "Hook run after whisper command has inserted the transcription.
 
 This hook will be run from the buffer in which the transcription was inserted."
@@ -359,7 +361,7 @@ Depending on the COMMAND we either show the indicator or hide it."
                              (when (= (buffer-size) 0)
                                (error "Whisper command produced no output"))
                              (goto-char (point-min))
-                             (run-hook-wrapped 'whisper-post-process-hook
+                             (run-hook-wrapped 'whisper-after-transcription-hook
                                                (lambda (f)
                                                  (with-current-buffer whisper--stdout-buffer
                                                    (save-excursion
@@ -383,7 +385,7 @@ Depending on the COMMAND we either show the indicator or hide it."
                        (unless whisper-show-progress-in-mode-line (kill-buffer whisper--stderr-buffer-name))
                        (whisper--setup-mode-line :hide 'transcribing)
                        (message nil)
-                       (run-hooks 'whisper-post-insert-hook))))))
+                       (run-hooks 'whisper-after-insert-hook))))))
 
 (defun whisper--check-model-consistency ()
   "Check if chosen language and model are consistent."
@@ -562,7 +564,7 @@ This is a dwim function that does different things depending on current state:
 	(interrupt-process proc)))
      (t
       (setq whisper--point-buffer (current-buffer))
-      (run-hooks 'whisper-pre-process-hook)
+      (run-hooks 'whisper-before-transcription-hook)
       (when whisper-install-whispercpp
         (whisper--check-model-consistency))
       (setq-default whisper--ffmpeg-input-file nil)
