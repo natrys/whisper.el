@@ -102,10 +102,13 @@ model you would be using otherwise.
 Valid values are (from lowest to highest quality):
 - q4_0
 - q4_1
+- q4_k
 - q5_0
 - q5_1
+- q5_k
+- q6_k
 - q8_0"
-  :type '(choice integer (const nil))
+  :type '(choice string (const nil))
   :group 'whisper)
 
 (defcustom whisper-install-whispercpp t
@@ -400,7 +403,7 @@ Depending on the COMMAND we either show the indicator or hide it."
 
   (let ((model-pattern (rx (seq (or "tiny" "base" "small" "medium" (seq "large" (opt (seq "-v" (any "1-2")))))
                                 (opt (seq "." (= 2 (any "a-z")))))))
-        (quantization-pattern (rx (or "q4_0" "q4_1" "q5_0" "q5_1" "q8_0"))))
+        (quantization-pattern (rx (or "q4_0" "q4_1" "q4_k" "q5_0" "q5_1" "q5_k" "q6_k" "q8_0"))))
     (unless (string-match-p model-pattern whisper-model)
       (error (concat "Speech recognition model " whisper-model " not recognised. For the list, see: "
                      "https://github.com/ggerganov/whisper.cpp/tree/master/models")))
