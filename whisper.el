@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.3.0
+;; Version: 0.3.1
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -273,7 +273,7 @@ function to produce the command for the inference engine of your choice."
   (if (eq phase 'recording)
       whisper--mode-line-recording-indicator
     (if whisper--using-whispercpp
-        '(:eval (concat whisper--mode-line-transcribing-indicator whisper--progress-level "%%%%"))
+        '(:eval (concat whisper--mode-line-transcribing-indicator whisper--progress-level "%%"))
       whisper--mode-line-transcribing-indicator)))
 
 (defun whisper--setup-mode-line (command phase)
@@ -286,7 +286,7 @@ Depending on the COMMAND we either show the indicator or hide it."
           (cl-pushnew indicator global-mode-string :test #'equal)
         (setf global-mode-string (remove indicator global-mode-string))
         (setq whisper--progress-level "0")))
-    (force-mode-line-update)))
+    (force-mode-line-update t)))
 
 (defun whisper--get-whispercpp-progress (_process output)
   "Notify user of transcription progress by parsing whisper.cpp OUTPUT."
@@ -401,8 +401,11 @@ Depending on the COMMAND we either show the indicator or hide it."
     (error (concat "Unknown language shortcode. If unsure use 'auto'. For full list, see: "
                    "https://github.com/ggerganov/whisper.cpp/blob/master/whisper.cpp")))
 
-  (let ((model-pattern (rx (seq (or "tiny" "base" "small" "medium" (seq "large" (opt (seq "-v" (any "1-2")))))
-                                (opt (seq "." (= 2 (any "a-z")))))))
+  (let ((model-pattern (rx (seq bol
+                                (or "tiny" "base" "small" "medium"
+                                    (seq "large" (opt (seq "-v" (any "1-3") (opt "-turbo")))))
+                                (opt (seq "." (= 2 (any "a-z"))))
+                                eol)))
         (quantization-pattern (rx (or "q4_0" "q4_1" "q4_k" "q5_0" "q5_1" "q5_k" "q6_k" "q8_0"))))
     (unless (string-match-p model-pattern whisper-model)
       (error (concat "Speech recognition model " whisper-model " not recognised. For the list, see: "
