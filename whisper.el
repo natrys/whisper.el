@@ -84,6 +84,12 @@ Be sure to use generic model (without .en suffix) when language is not English."
   :type 'string
   :group 'whisper)
 
+(defcustom whisper-always-ask-language nil
+  "Whether always ask for setting the spoken language for audio."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'whisper)
+
 (defcustom whisper-translate nil
   "Whether to translate to English first, before transcribing."
   :type 'boolean
@@ -220,6 +226,111 @@ This hook will be run from the buffer in which the transcription was inserted."
 
 (defvar whisper--mode-line-transcribing-indicator
   (propertize "" 'face font-lock-warning-face))
+
+(defvar whisper--languages
+  '(("auto" . "auto-detect")
+    ("en" . "english")
+    ("zh" . "chinese")
+    ("de" . "german")
+    ("es" . "spanish")
+    ("ru" . "russian")
+    ("ko" . "korean")
+    ("fr" . "french")
+    ("ja" . "japanese")
+    ("pt" . "portuguese")
+    ("tr" . "turkish")
+    ("pl" . "polish")
+    ("ca" . "catalan")
+    ("nl" . "dutch")
+    ("ar" . "arabic")
+    ("sv" . "swedish")
+    ("it" . "italian")
+    ("id" . "indonesian")
+    ("hi" . "hindi")
+    ("fi" . "finnish")
+    ("vi" . "vietnamese")
+    ("iw" . "hebrew")
+    ("uk" . "ukrainian")
+    ("el" . "greek")
+    ("ms" . "malay")
+    ("cs" . "czech")
+    ("ro" . "romanian")
+    ("da" . "danish")
+    ("hu" . "hungarian")
+    ("ta" . "tamil")
+    ("no" . "norwegian")
+    ("th" . "thai")
+    ("ur" . "urdu")
+    ("hr" . "croatian")
+    ("bg" . "bulgarian")
+    ("lt" . "lithuanian")
+    ("la" . "latin")
+    ("mi" . "maori")
+    ("ml" . "malayalam")
+    ("cy" . "welsh")
+    ("sk" . "slovak")
+    ("te" . "telugu")
+    ("fa" . "persian")
+    ("lv" . "latvian")
+    ("bn" . "bengali")
+    ("sr" . "serbian")
+    ("az" . "azerbaijani")
+    ("sl" . "slovenian")
+    ("kn" . "kannada")
+    ("et" . "estonian")
+    ("mk" . "macedonian")
+    ("br" . "breton")
+    ("eu" . "basque")
+    ("is" . "icelandic")
+    ("hy" . "armenian")
+    ("ne" . "nepali")
+    ("mn" . "mongolian")
+    ("bs" . "bosnian")
+    ("kk" . "kazakh")
+    ("sq" . "albanian")
+    ("sw" . "swahili")
+    ("gl" . "galician")
+    ("mr" . "marathi")
+    ("pa" . "punjabi")
+    ("si" . "sinhala")
+    ("km" . "khmer")
+    ("sn" . "shona")
+    ("yo" . "yoruba")
+    ("so" . "somali")
+    ("af" . "afrikaans")
+    ("oc" . "occitan")
+    ("ka" . "georgian")
+    ("be" . "belarusian")
+    ("tg" . "tajik")
+    ("sd" . "sindhi")
+    ("gu" . "gujarati")
+    ("am" . "amharic")
+    ("yi" . "yiddish")
+    ("lo" . "lao")
+    ("uz" . "uzbek")
+    ("fo" . "faroese")
+    ("ht" . "haitian creole")
+    ("ps" . "pashto")
+    ("tk" . "turkmen")
+    ("nn" . "nynorsk")
+    ("mt" . "maltese")
+    ("sa" . "sanskrit")
+    ("lb" . "luxembourgish")
+    ("my" . "myanmar")
+    ("bo" . "tibetan")
+    ("tl" . "tagalog")
+    ("mg" . "malagasy")
+    ("as" . "assamese")
+    ("tt" . "tatar")
+    ("haw" . "hawaiian")
+    ("ln" . "lingala")
+    ("ha" . "hausa")
+    ("ba" . "bashkir")
+    ("jw" . "javanese")
+    ("su" . "sundanese"))
+  "Alist of whisper supported recognized spoken languages for audio.
+The sort codes list are from:
+https://github.com/ggerganov/whisper.cpp/blob/aa6adda26e1ee9843dddb013890e3312bee52cfe/whisper.cpp#L31")
 
 (defun whisper--check-buffer-read-only-p ()
   "Error out if current buffer is read-only."
@@ -557,37 +668,44 @@ This is a dwim function that does different things depending on current state:
 - When recording is in progress, stops it and starts transcribing.
 - When transcribing is in progress, cancels it."
   (interactive "P")
-  (if (process-live-p whisper--transcribing-process)
-      (when (yes-or-no-p "A transcribing is already in progress, kill it?")
-        (kill-process whisper--transcribing-process))
+  (let ((whisper-language (if whisper-always-ask-language
+                              (car (rassoc
+                                    (completing-read
+                                     "Select the spoken language for audio: "
+                                     (mapcar 'cdr whisper--languages) nil t whisper-language t)
+                                    whisper--languages))
+                            whisper-language)))
+    (if (process-live-p whisper--transcribing-process)
+        (when (yes-or-no-p "A transcribing is already in progress, kill it?")
+          (kill-process whisper--transcribing-process))
 
-    (cond
-     ((process-live-p whisper--recording-process)
-      (interrupt-process whisper--recording-process))
-     ((and (buffer-live-p whisper--compilation-buffer)
-           (process-live-p (get-buffer-process whisper--compilation-buffer)))
-      (when-let ((proc (get-buffer-process whisper--compilation-buffer)))
-	(interrupt-process proc)))
-     (t
-      (setq whisper--point-buffer (current-buffer))
-      (run-hooks 'whisper-before-transcription-hook)
-      (when whisper-install-whispercpp
-        (whisper--check-model-consistency))
-      (setq-default whisper--ffmpeg-input-file nil)
-      (when (equal arg '(4))
-        (when-let ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
-          (unless (file-readable-p file)
-            (error "Media file doesn't exist or isn't readable"))
-          (setq-default whisper--ffmpeg-input-file file)))
-      (setq whisper--using-whispercpp nil)
-      (if whisper-install-whispercpp
-          (whisper--check-install-and-run nil "whisper-start")
-        ;; if user is bringing their own inference engine, we at least check the command exists
-        (let ((command (car (whisper-command whisper--temp-file))))
-          (if (or (file-exists-p command)
-                  (executable-find command))
-              (whisper--record-audio)
-            (error (format "Couldn't find %s in PATH, nor is it a file" command)))))))))
+      (cond
+       ((process-live-p whisper--recording-process)
+        (interrupt-process whisper--recording-process))
+       ((and (buffer-live-p whisper--compilation-buffer)
+             (process-live-p (get-buffer-process whisper--compilation-buffer)))
+        (when-let ((proc (get-buffer-process whisper--compilation-buffer)))
+	      (interrupt-process proc)))
+       (t
+        (setq whisper--point-buffer (current-buffer))
+        (run-hooks 'whisper-before-transcription-hook)
+        (when whisper-install-whispercpp
+          (whisper--check-model-consistency))
+        (setq-default whisper--ffmpeg-input-file nil)
+        (when (equal arg '(4))
+          (when-let ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
+            (unless (file-readable-p file)
+              (error "Media file doesn't exist or isn't readable"))
+            (setq-default whisper--ffmpeg-input-file file)))
+        (setq whisper--using-whispercpp nil)
+        (if whisper-install-whispercpp
+            (whisper--check-install-and-run nil "whisper-start")
+          ;; if user is bringing their own inference engine, we at least check the command exists
+          (let ((command (car (whisper-command whisper--temp-file))))
+            (if (or (file-exists-p command)
+                    (executable-find command))
+                (whisper--record-audio)
+              (error (format "Couldn't find %s in PATH, nor is it a file" command))))))))))
 
 ;;;###autoload
 (defun whisper-file ()
