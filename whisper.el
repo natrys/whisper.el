@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.3.1
+;; Version: 0.3.2
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -311,24 +311,26 @@ Depending on the COMMAND we either show the indicator or hide it."
       (message "[*] Pre-processing media file")
     (message "[*] Recording audio")
     (whisper--setup-mode-line :show 'recording))
-  (setq whisper--recording-process
-        (make-process
-         :name "whisper-recording"
-         :command (whisper--record-command whisper--temp-file)
-         :connection-type nil
-         :buffer nil
-         :sentinel (lambda (_process event)
-                     (whisper--setup-mode-line :hide 'recording)
-                     (cond ((or (string-equal "finished\n" event)
-                                ;; this is would be sane
-                                (string-equal "terminated\n" event)
-                                ;; but this is reality
-                                (string-equal "exited abnormally with code 255\n" event))
-                            (whisper--transcribe-audio))
-                           ((string-equal "exited abnormally with code 1\n" event)
-                            (if whisper--ffmpeg-input-file
-                                (error "FFmpeg failed to convert given file")
-                              (error "FFmpeg failed to record audio"))))))))
+  (if (string-equal whisper--ffmpeg-input-file whisper--temp-file)
+      (whisper--transcribe-audio)
+    (setq whisper--recording-process
+          (make-process
+           :name "whisper-recording"
+           :command (whisper--record-command whisper--temp-file)
+           :connection-type nil
+           :buffer nil
+           :sentinel (lambda (_process event)
+                       (whisper--setup-mode-line :hide 'recording)
+                       (cond ((or (string-equal "finished\n" event)
+                                  ;; this is would be sane
+                                  (string-equal "terminated\n" event)
+                                  ;; but this is reality
+                                  (string-equal "exited abnormally with code 255\n" event))
+                              (whisper--transcribe-audio))
+                             ((string-match-p "exited abnormally with code [0-9]+\n" event)
+                              (if whisper--ffmpeg-input-file
+                                  (error "FFmpeg failed to convert given file")
+                                (error "FFmpeg failed to record audio")))))))))
 
 (defun whisper--transcribe-audio ()
   "Start audio transcribing process in the background."
