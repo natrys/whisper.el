@@ -566,19 +566,23 @@ This is a dwim function that does different things depending on current state:
       (interrupt-process whisper--recording-process))
      ((and (buffer-live-p whisper--compilation-buffer)
            (process-live-p (get-buffer-process whisper--compilation-buffer)))
-      (when-let ((proc (get-buffer-process whisper--compilation-buffer)))
+      (when-let* ((proc (get-buffer-process whisper--compilation-buffer)))
 	(interrupt-process proc)))
      (t
       (setq whisper--point-buffer (current-buffer))
       (run-hooks 'whisper-before-transcription-hook)
       (when whisper-install-whispercpp
         (whisper--check-model-consistency))
-      (setq-default whisper--ffmpeg-input-file nil)
-      (when (equal arg '(4))
-        (when-let ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
+      (setq-default
+       whisper--ffmpeg-input-file
+       (pcase arg
+        ('nil nil)
+        ('(4)
+         (when-let* ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
           (unless (file-readable-p file)
             (error "Media file doesn't exist or isn't readable"))
-          (setq-default whisper--ffmpeg-input-file file)))
+          file))
+        ((and (pred file-readable-p) file) file)))
       (setq whisper--using-whispercpp nil)
       (if whisper-install-whispercpp
           (whisper--check-install-and-run nil "whisper-start")
