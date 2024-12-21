@@ -8,7 +8,7 @@ You can capture audio with your local input device (microphone) or choose a medi
 
 *** Install and Usage
 
-Aside from a C++ compiler (to compile whisper.cpp), the system needs to have =FFmpeg= for recording audio.
+Aside from Git, a C++ compiler and CMake (to build whisper.cpp), the system needs to have =FFmpeg= for recording audio.
 
 You can install =whisper.el= by cloning this repo somewhere, and then use it like:
 

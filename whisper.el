@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.3.2
+;; Version: 0.3.3
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -254,16 +254,15 @@ This hook will be run from the buffer in which the transcription was inserted."
 
 If you want to use something other than whisper.cpp, you should override this
 function to produce the command for the inference engine of your choice."
-  (let ((base (expand-file-name (file-name-as-directory whisper--install-path))))
-    `(,(concat base (if (eq system-type 'windows-nt) "main.exe" "main"))
-      ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
-      ;; ,@(when whisper-enable-speed-up '("--speed-up"))
-      ,@(when whisper-translate '("--translate"))
-      ,@(when whisper-show-progress-in-mode-line '("--print-progress"))
-      "--language" ,whisper-language
-      "--model" ,(whisper--model-file whisper-quantize)
-      "--no-timestamps"
-      "--file" ,input-file)))
+  `(,(whisper--find-whispercpp-main)
+    ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
+    ;; ,@(when whisper-enable-speed-up '("--speed-up"))
+    ,@(when whisper-translate '("--translate"))
+    ,@(when whisper-show-progress-in-mode-line '("--print-progress"))
+    "--language" ,whisper-language
+    "--model" ,(whisper--model-file whisper-quantize)
+    "--no-timestamps"
+    "--file" ,input-file))
 
 (defalias 'whisper--transcribe-command 'whisper-command)
 (make-obsolete 'whisper--transcribe-command 'whisper-command "0.1.6")
@@ -297,10 +296,23 @@ Depending on the COMMAND we either show the indicator or hide it."
 
 (defun whisper--using-whispercpp-p ()
   "Crude way to check we are in fact using whisper.cpp."
-  (let ((command (car (whisper-command whisper--temp-file))))
-    (or (string-match-p (rx-to-string '(seq "whisper.cpp" (any "/\\") "main")) command)
+  (let ((command (car (whisper-command whisper--temp-file)))
+        (pattern '(seq (or bol (any "/\\"))
+                       (or "main" "whisper-cli")
+                       (? ".exe")
+                       eol)))
+    (or (string-match-p (rx-to-string pattern) command)
         ;; for the staunch Nix user
         (string-equal command "whisper-cpp"))))
+
+(defun whisper--find-whispercpp-main ()
+  "Find whisper.cpp main binary in a backward compatible way."
+  (let* ((base (expand-file-name (file-name-as-directory whisper--install-path)))
+         (old-bin-name (if (eq system-type 'windows-nt) "main.exe" "main"))
+         (bin-name (if (eq system-type 'windows-nt) "whisper-cli.exe" "whisper-cli"))
+         (old-bin-path (concat base old-bin-name))
+         (bin-path (concat base "build/bin/" bin-name)))
+    (if (file-exists-p old-bin-path) old-bin-path bin-path)))
 
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
@@ -466,17 +478,22 @@ escapes me right now, to get let bindings work like synchronous code."
 
       ;; being here means this compilation job either finished or was interrupted
       (remove-hook 'compilation-finish-functions #'whisper--check-install-and-run)
-      (kill-buffer whisper--compilation-buffer))
+      (when (string-equal "finished\n" status)
+        (kill-buffer whisper--compilation-buffer)))
 
     (let ((base (concat
                  (expand-file-name (file-name-as-directory whisper-install-directory))
                  "whisper.cpp/"))
+          (old-bin-name (if (eq system-type 'windows-nt) "main.exe" "main"))
+          (bin-name (if (eq system-type 'windows-nt) "whisper-cli.exe" "whisper-cli"))
           (compilation-buffer-name-function '(lambda (_) whisper--compilation-buffer-name)))
 
       (setq whisper--install-path base)
 
-      (when (and (not (file-exists-p (concat base (if (eq system-type 'windows-nt) "main.exe" "main"))))
-                 (not (string-equal "interrupt\n" status)))
+      (when (and (not (or (string-equal "interrupt\n" status)
+                          (string-prefix-p "exited abnormally with code" status)))
+                 (not (or (file-exists-p (concat base old-bin-name)) ;; old location
+                          (file-exists-p (concat base "build/bin/" bin-name)))))
 
         (when (eq whisper-install-whispercpp 'manual)
           (error (format "Couldn't find whisper.cpp install at: %s" base)))
@@ -488,7 +505,7 @@ escapes me right now, to get let bindings work like synchronous code."
                     "cd " whisper-install-directory " && "
                     "git clone https://github.com/ggerganov/whisper.cpp && "
                     "cd whisper.cpp && "
-                    "make")))
+                    "CLICOLOR=0 make")))
               (setq whisper--compilation-buffer (get-buffer-create whisper--compilation-buffer-name))
               (add-hook 'compilation-finish-functions #'whisper--check-install-and-run)
               (compile make-commands)
@@ -496,7 +513,8 @@ escapes me right now, to get let bindings work like synchronous code."
           (error "Needs whisper.cpp to be installed")))
 
       (when (and (not (file-exists-p (whisper--model-file nil)))
-                 (not (string-equal "interrupt\n" status)))
+                 (not (or (string-equal "interrupt\n" status)
+                          (string-prefix-p "exited abnormally with code" status))))
         (if (yes-or-no-p (format "Speech recognition model \"%s\" isn't available, download now?" whisper-model))
             (let ((make-commands
                    (concat
@@ -510,7 +528,8 @@ escapes me right now, to get let bindings work like synchronous code."
 
       (when (and whisper-quantize
                  (not (file-exists-p (whisper--model-file t)))
-                 (not (string-equal "interrupt\n" status)))
+                 (not (or (string-equal "interrupt\n" status)
+                          (string-prefix-p "exited abnormally with code" status))))
         (let ((make-commands
                (concat
                 "cd " base " && "
@@ -525,7 +544,7 @@ escapes me right now, to get let bindings work like synchronous code."
       (when (string-equal "interrupt\n" status)
         ;; double check to be sure before cleaning up
         (when (and (file-directory-p base) (string-suffix-p "/whisper.cpp/" base))
-          (if (file-exists-p (concat base (if (eq system-type 'windows-nt) "main.exe" "main")))
+          (if (file-exists-p (concat base "build/bin/" bin-name))
               ;; model download interrupted probably, should delete partial file
               (progn
                 (message "Download interrupted, cleaning up.")
@@ -534,6 +553,12 @@ escapes me right now, to get let bindings work like synchronous code."
             ;; doesn't hurt to nuke it too and start later from fresh point
             (message "Installation interrupted, cleaning up.")
             (delete-directory whisper--install-path t)))
+        (throw 'early-return nil))
+
+      (when (string-prefix-p "exited abnormally with code" status)
+        (delete-directory whisper--install-path t)
+        (message "Couldn't compile whisper.cpp. Check that you have Git, a C++ compiler and CMake installed.")
+        (display-buffer whisper--compilation-buffer)
         (throw 'early-return nil))
 
       (when (string-equal "finished\n" status)
