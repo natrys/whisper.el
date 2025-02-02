@@ -28,6 +28,7 @@ You will use these functions:
 
 - =whisper-run=: Toggle between recording from your microphone and transcribing
 - =whisper-file=: Same as before but transcribes a local file on disk
+- =whisper-select-language=: Change the set language for transcription, which sets the whisper-model variable
 
 Invoking =whisper-run= with a prefix argument (C-u) has the same effect as =whisper-file=.
 

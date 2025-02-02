@@ -819,5 +819,27 @@ This is a dwim function that does different things depending on current state:
   (let ((current-prefix-arg '(4)))
     (call-interactively #'whisper-run)))
 
+;;;###autoload
+(defun whisper-select-language ()
+  "Prompt user to select a language and set `whisper-language'."
+  (interactive)
+  (let ((lang (completing-read
+               "Select language: "
+               '("auto" "af" "ar" "ay" "az" "be" "bg" "bn" "bs" "ca" "cs" "cy"
+                 "da" "de" "el" "en" "eo" "es" "et" "eu" "fa" "fi" "fr" "ga" "gl"
+                 "gu" "he" "hi" "hr" "ht" "hu" "hy" "id" "is" "it" "ja" "jv" "ka"
+                 "km" "kn" "ko" "ku" "ky" "la" "lb" "lo" "lt" "lv" "mg" "mi" "mk"
+                 "ml" "mn" "mr" "ms" "mt" "my" "ne" "nl" "no" "ny" "pa" "pl" "ps"
+                 "pt" "ro" "ru" "sd" "si" "sk" "sl" "sm" "sn" "so" "sq" "sr" "st"
+                 "su" "sv" "sw" "ta" "te" "tg" "th" "tl" "tr" "uk" "ur" "uz" "vi"
+                 "xh" "yi" "yo" "zh")
+               nil
+               t
+               nil
+               nil
+               whisper-language)))
+    (setq whisper-language lang)
+    (message "whisper-language set to %s" whisper-language)))
+
 (provide 'whisper)
 ;;; whisper.el ends here
