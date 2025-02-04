@@ -550,14 +550,17 @@ escapes me right now, to get let bindings work like synchronous code."
                 (message "Download interrupted, cleaning up.")
                 (delete-file (concat base "models/" "ggml-" whisper-model ".bin")))
             ;; otherwise whisper.cpp compilation got interrupted
-            ;; doesn't hurt to nuke it too and start later from fresh point
             (message "Installation interrupted, cleaning up.")
-            (delete-directory whisper--install-path t)))
+            (unless (eq whisper-install-whispercpp 'manual)
+              (delete-directory whisper--install-path t))))
         (throw 'early-return nil))
 
       (when (string-prefix-p "exited abnormally with code" status)
-        (delete-directory whisper--install-path t)
-        (message "Couldn't compile whisper.cpp. Check that you have Git, a C++ compiler and CMake installed.")
+        (if (eq whisper-install-whispercpp 'manual)
+            (message "Compilation exited abnormally, but not deleting directory because installation is manual.")
+          (progn
+            (delete-directory whisper--install-path t)
+            (message "Couldn't compile whisper.cpp. Check that you have Git, a C++ compiler and CMake installed.")))
         (display-buffer whisper--compilation-buffer)
         (throw 'early-return nil))
 
