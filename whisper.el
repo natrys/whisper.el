@@ -530,16 +530,23 @@ escapes me right now, to get let bindings work like synchronous code."
                  (not (file-exists-p (whisper--model-file t)))
                  (not (or (string-equal "interrupt\n" status)
                           (string-prefix-p "exited abnormally with code" status))))
-        (let ((make-commands
-               (concat
-                "cd " base " && "
-                "make quantize" " && "
-                "echo 'Quantizing the model....'" " && "
-                "./quantize " (whisper--model-file nil) " " (whisper--model-file t) " " whisper-quantize)))
-          (setq whisper--compilation-buffer (get-buffer-create whisper--compilation-buffer-name))
-          (add-hook 'compilation-finish-functions #'whisper--check-install-and-run)
-          (compile make-commands)
-          (throw 'early-return nil)))
+        (if (not (file-exists-p (concat base "build/bin/quantize")))
+            (let ((make-commands
+                   (concat
+                    "cd " base " && "
+                    "make quantize" " && "
+                    "echo 'Quantizing the model....'" " && "
+                    "./build/bin/quantize " (whisper--model-file nil) " " (whisper--model-file t) " " whisper-quantize)))
+              (setq whisper--compilation-buffer (get-buffer-create whisper--compilation-buffer-name))
+              (add-hook 'compilation-finish-functions #'whisper--check-install-and-run)
+              (compile make-commands)
+              (throw 'early-return nil))
+          (let ((quantize-command
+                 (concat (concat base "build/bin/quantize")
+                         " " (whisper--model-file nil) " " (whisper--model-file t) " " whisper-quantize)))
+            (message "Running quantize binary...")
+            (shell-command quantize-command)
+            (throw 'early-return nil))))
 
       (when (string-equal "interrupt\n" status)
         ;; double check to be sure before cleaning up
