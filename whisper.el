@@ -128,6 +128,27 @@ responsibility to override `whisper-command' with appropriate function."
   :type '(choice boolean (const manual))
   :group 'whisper)
 
+(defcustom whisper-server-mode nil
+  "Whether to use server mode for transcription.
+When enabled, whisper.cpp will run as a server process and handle requests via HTTP."
+  :type 'boolean
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (bound-and-true-p whisper--server-process)
+           (delete-process whisper--server-process)
+           (setq whisper--server-process nil)))
+  :group 'whisper)
+
+(defcustom whisper-server-host "127.0.0.1"
+  "Host address for the whisper server."
+  :type 'string
+  :group 'whisper)
+
+(defcustom whisper-server-port 8642
+  "Port number for the whisper server."
+  :type 'integer
+  :group 'whisper)
+
 (defcustom whisper-insert-text-at-point t
   "Whether to put whisper output under point in current buffer.
 
@@ -186,6 +207,13 @@ This hook will be run from the buffer in which the transcription was inserted."
 
 (defvar whisper--recording-process nil)
 (defvar whisper--transcribing-process nil)
+(defvar whisper--server-process nil)
+
+;; Kill server process when Emacs exits
+(add-hook 'kill-emacs-hook
+          (lambda ()
+            (when (process-live-p whisper--server-process)
+              (delete-process whisper--server-process))))
 (defvar whisper--marker (make-marker))
 
 (defvar whisper--install-path nil)
@@ -314,6 +342,13 @@ Depending on the COMMAND we either show the indicator or hide it."
          (bin-path (concat base "build/bin/" bin-name)))
     (if (file-exists-p old-bin-path) old-bin-path bin-path)))
 
+(defun whisper--find-whispercpp-server ()
+  "Find whisper.cpp server binary."
+  (let* ((base (expand-file-name (file-name-as-directory whisper--install-path)))
+         (bin-name (if (eq system-type 'windows-nt) "whisper-server.exe" "whisper-server"))
+         (bin-path (concat base "build/bin/" bin-name)))
+    bin-path))
+
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
   (when whisper-insert-text-at-point
@@ -344,23 +379,113 @@ Depending on the COMMAND we either show the indicator or hide it."
                                   (error "FFmpeg failed to convert given file")
                                 (error "FFmpeg failed to record audio")))))))))
 
-(defun whisper--transcribe-audio ()
-  "Start audio transcribing process in the background."
-  (message "[-] Transcribing/Translating audio")
-  (setq whisper--using-whispercpp (whisper--using-whispercpp-p))
+(defun whisper--ensure-server ()
+  "Ensure the whisper server is running."
+  (unless (and whisper--server-process
+               (process-live-p whisper--server-process))
+    (let ((server-buffer (get-buffer-create "*whisper-server*"))
+          (error-buffer (get-buffer-create "*whisper-server-error*")))
+      (setq whisper--server-process
+            (make-process
+             :name "whisper-server"
+             :command (list (whisper--find-whispercpp-server)
+                           "--host" whisper-server-host
+                           "--port" (number-to-string whisper-server-port)
+                           "--model" (whisper--model-file whisper-quantize)
+                           "--language" whisper-language
+                           "--convert")
+             :buffer server-buffer
+             :stderr error-buffer))
+      ;; Give server time to start and verify it's running
+      (sleep-for 1)
+      (unless (process-live-p whisper--server-process)
+        (with-current-buffer error-buffer
+          (error "Failed to start whisper server: %s" 
+                 (buffer-substring-no-properties (point-min) (point-max)))))))) 
+
+(defun whisper--transcribe-via-server ()
+  "Transcribe audio using the whisper server."
+  (message "[-] Transcribing/Translating audio via server")
   (whisper--setup-mode-line :show 'transcribing)
+  (whisper--ensure-server)
   (setq whisper--transcribing-process
         (make-process
-         :name "whisper-transcribing"
-         :command (whisper-command whisper--temp-file)
-         :connection-type nil
+         :name "whisper-curl"
+         :command `("curl" "-s"
+                   ,(format "http://%s:%d/inference" whisper-server-host whisper-server-port)
+                   "-H" "Content-Type: multipart/form-data"
+                   "-F" ,(concat "file=@" whisper--temp-file)
+                   "-F" "temperature=0.0"
+                   "-F" "temperature_inc=0.2"
+                   "-F" "response_format=text"
+                   "-F" ,(concat "language=" whisper-language))
          :buffer (get-buffer-create whisper--stdout-buffer-name)
-         :stderr (if (and whisper-show-progress-in-mode-line whisper--using-whispercpp)
-                     (make-pipe-process
-                      :name "whisper-stderr"
-                      :filter #'whisper--get-whispercpp-progress)
-                   (get-buffer-create whisper--stderr-buffer-name))
+         :stderr (get-buffer-create whisper--stderr-buffer-name)
          :coding 'utf-8
+         :sentinel (lambda (_process event)
+                    (unwind-protect
+                        (when-let* ((whisper--stdout-buffer (get-buffer whisper--stdout-buffer-name))
+                                  (finished (and (buffer-live-p whisper--stdout-buffer)
+                                               (string-equal "finished\n" event))))
+                          (with-current-buffer whisper--stdout-buffer
+                            (goto-char (point-min))
+                            (skip-chars-forward " \n")
+                            (when (> (point) (point-min))
+                              (delete-region (point-min) (point)))
+                            (goto-char (point-max))
+                            (skip-chars-backward " \n")
+                            (when (> (point-max) (point))
+                              (delete-region (point) (point-max)))
+                            (when (= (buffer-size) 0)
+                              (error "Whisper command produced no output"))
+                            (goto-char (point-min))
+                            (run-hook-wrapped 'whisper-after-transcription-hook
+                                            (lambda (f)
+                                              (with-current-buffer whisper--stdout-buffer
+                                                (save-excursion
+                                                  (funcall f)))
+                                              nil))
+                            (when (> (buffer-size) 0)
+                              (if whisper-insert-text-at-point
+                                  (with-current-buffer (marker-buffer whisper--marker)
+                                    (goto-char whisper--marker)
+                                    (insert-buffer-substring whisper--stdout-buffer)
+                                    (when whisper-return-cursor-to-start
+                                      (goto-char whisper--marker)))
+                                (with-current-buffer
+                                    (get-buffer-create
+                                     (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
+                                  (insert-buffer-substring whisper--stdout-buffer)
+                                  (display-buffer (current-buffer)))))))
+                      (set-marker whisper--marker nil)
+                      (setq whisper--point-buffer nil)
+                      (kill-buffer whisper--stdout-buffer-name)
+                      (kill-buffer whisper--stderr-buffer-name)
+                      (whisper--setup-mode-line :hide 'transcribing)
+                      (message nil)
+                      (run-hooks 'whisper-after-insert-hook))))))
+
+(defun whisper--transcribe-audio ()
+  "Start audio transcribing process in the background."
+  (message "Server mode %S" whisper-server-mode)
+
+  (if whisper-server-mode
+      (whisper--transcribe-via-server)
+    (message "[-] Transcribing/Translating audio")
+    (setq whisper--using-whispercpp (whisper--using-whispercpp-p))
+    (whisper--setup-mode-line :show 'transcribing)
+    (setq whisper--transcribing-process
+          (make-process
+           :name "whisper-transcribing"
+           :command (whisper-command whisper--temp-file)
+           :connection-type nil
+           :buffer (get-buffer-create whisper--stdout-buffer-name)
+           :stderr (if (and whisper-show-progress-in-mode-line whisper--using-whispercpp)
+                       (make-pipe-process
+                        :name "whisper-stderr"
+                        :filter #'whisper--get-whispercpp-progress)
+                     (get-buffer-create whisper--stderr-buffer-name))
+           :coding 'utf-8
          :sentinel (lambda (_process event)
                      (unwind-protect
                          (when-let* ((whisper--stdout-buffer (get-buffer whisper--stdout-buffer-name))
@@ -402,7 +527,7 @@ Depending on the COMMAND we either show the indicator or hide it."
                        (unless whisper-show-progress-in-mode-line (kill-buffer whisper--stderr-buffer-name))
                        (whisper--setup-mode-line :hide 'transcribing)
                        (message nil)
-                       (run-hooks 'whisper-after-insert-hook))))))
+                       (run-hooks 'whisper-after-insert-hook)))))))
 
 (defun whisper--check-model-consistency ()
   "Check if chosen language and model are consistent."
