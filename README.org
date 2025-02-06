@@ -44,6 +44,13 @@ _Note for MacOS users_: If whisper.el is failing silently, it might be because E
 - =whisper-insert-text-at-point=: By default whisper.el inserts the transcribed text at the point where =whisper-run= or =whisper-file= was invoked. But if you set this to =nil=, the text will be displayed in a separate buffer instead.
 - =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
 - =whisper-use-threads=: Default =nil= means let whisper.cpp choose appropriate value (which it sets with formula min(4, num_of_cores)). If you want to use more than 4 threads (as you have more than 4 cpu cores), set this number manually.
+- =whisper-server-mode=: Choose between different transcription modes:
+  - =nil= (default): Use whisper.cpp directly
+  - =local=: Run whisper.cpp as a local HTTP server for better performance with multiple requests
+  - =openai=: Use OpenAI's Whisper API (requires API key)
+- =whisper-server-host=: Host address for the local whisper server (default "127.0.0.1")
+- =whisper-server-port=: Port number for the local whisper server (default 8642)
+- =whisper-openai-api-key=: API key for OpenAI's Whisper API (required when using openai server mode)
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
 - =whisper-show-progress-in-mode-line=: By default, progress level of running job in whisper.cpp is shown in the mode line.
 - =whisper-quantize=: Whether to quantize the model (default =nil=). Non-nil valid values are: q4_0, q4_1, q5_0, q5_1, q8_0. For an explanation of what quantization means, [[https://github.com/natrys/whisper.el#quantize-the-model][see below]]. If it's defined, whisper.el will automatically quantize the model before using that.
@@ -109,6 +116,37 @@ Quantization is a technique to reduce the computational and memory costs of runn
 **** Re-compile whisper.cpp for hardware acceleration
 
 Offloading the encoder inference to hardware or optimised external libraries may result in speed-up. There are options to use: Core ML (for Apple hardware), cuBLAS (for NVIDIA GPU), OpenVINO (Intel CPU/GPU), CLBlast (for GPUs that support OpenCL), OpenBLAS (an optimised matrix processing library for CPU). Consult [[https://github.com/ggerganov/whisper.cpp][whisper.cpp README]] for how to re-compile whisper.cpp to enable those.
+
+**** Server Modes
+
+whisper.el supports three different modes of operation:
+
+***** Direct Mode (default)
+The default mode runs whisper.cpp directly for each transcription request. This is the simplest setup but requires loading the model each time.
+
+***** Local Server Mode
+When =whisper-server-mode= is set to =local=, whisper.el will run whisper.cpp as a persistent HTTP server. Benefits:
+- Model is loaded once and kept in memory
+- Better performance for multiple transcription requests
+- Server can be shared between multiple Emacs instances
+
+To use local server mode:
+#+begin_src elisp
+(setq whisper-server-mode 'local)
+#+end_src
+
+***** OpenAI API Mode
+When =whisper-server-mode= is set to =openai=, whisper.el will use OpenAI's official Whisper API. Benefits:
+- No local model or CPU requirements
+- Fast transcription
+
+To use OpenAI API mode:
+#+begin_src elisp
+(setq whisper-server-mode 'openai)
+(setq whisper-openai-api-key "your-api-key-here")
+#+end_src
+
+Note: OpenAI API mode requires an API key and will incur usage charges.
 
 **** Use something other than whisper.cpp
 
