@@ -775,14 +775,21 @@ This is a dwim function that does different things depending on current state:
           file))
         ((and (pred file-readable-p) file) file)))
       (setq whisper--using-whispercpp nil)
-      (if whisper-install-whispercpp
-          (whisper--check-install-and-run nil "whisper-start")
-        ;; if user is bringing their own inference engine, we at least check the command exists
+      (cond
+       ;; For server modes, skip whisper.cpp installation check
+       (whisper-server-mode
+        (whisper--record-audio))
+       ;; For local whisper.cpp mode
+       (whisper-install-whispercpp
+        (whisper--check-install-and-run nil "whisper-start"))
+       ;; For user-provided inference engine
+       (t
+        ;; Check the command exists
         (let ((command (car (whisper-command whisper--temp-file))))
           (if (or (file-exists-p command)
                   (executable-find command))
               (whisper--record-audio)
-            (error (format "Couldn't find %s in PATH, nor is it a file" command)))))))))
+            (error (format "Couldn't find %s in PATH, nor is it a file" command))))))))))
 
 ;;;###autoload
 (defun whisper-file ()
