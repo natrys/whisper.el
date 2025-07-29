@@ -45,12 +45,14 @@ _Note for MacOS users_: If whisper.el is failing silently, it might be because E
 - =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
 - =whisper-use-threads=: Default =nil= means let whisper.cpp choose appropriate value (which it sets with formula min(4, num_of_cores)). If you want to use more than 4 threads (as you have more than 4 cpu cores), set this number manually.
 - =whisper-server-mode=: Choose between different transcription modes:
-  - =nil= (default): Use whisper.cpp directly
-  - =local=: Run whisper.cpp as a local HTTP server for better performance with multiple requests
-  - =openai=: Use OpenAI's Whisper API (requires API key)
-- =whisper-server-host=: Host address for the local whisper server (default "127.0.0.1")
-- =whisper-server-port=: Port number for the local whisper server (default 8642)
-- =whisper-openai-api-key=: API key for OpenAI's Whisper API (required when using openai server mode)
+   - =nil= (default): Use whisper.cpp directly
+   - =local=: Run whisper.cpp as a local HTTP server for better performance with multiple requests
+   - =openai=: Use OpenAI compatible transcription API (requires API key)
+- =whisper-server-host=: Host address for the local whisper server (default ~127.0.0.1~)
+- =whisper-server-port=: Port number for the local whisper server (default ~8642~)
+- =whisper-openai-api-baseurl=: When using OpenAI server mode by default we use their API but you could use other services too (e.g. for Mistral set it to ~https://api.mistral.ai~)
+- =whisper-openai-api-key=: API key for OpenAI compatible whisper API (required when using OpenAI server mode)
+- =whisper-openai-model=: When using OpenAI server mode we default to their best proprietary model ~gpt-4o-transcribe~ but you could use ~whisper-1~ or other service appropriate models like ~voxtral-mini-latest~ which is Mistral's open-weight model
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
 - =whisper-show-progress-in-mode-line=: By default, progress level of running job in whisper.cpp is shown in the mode line.
 - =whisper-quantize=: Whether to quantize the model (default =nil=). Non-nil valid values are: q4_0, q4_1, q5_0, q5_1, q8_0. For an explanation of what quantization means, [[https://github.com/natrys/whisper.el#quantize-the-model][see below]]. If it's defined, whisper.el will automatically quantize the model before using that.
@@ -61,9 +63,10 @@ Additionally, depending on your input device and system you may need to modify t
 - =whisper--ffmpeg-input-format=: This is what you would pass to the =-f= flag of FFmpeg to input to record audio. Default is =pulse= on Linux, =avfoundation= on OSX and =dshow= on Windows.
 - =whisper--ffmpeg-input-device=: This is what you would pass to the =-i= flag of FFmpeg to record audio, like ~hw:0,2~ or something. If you are using pulseaudio or pipewire-pulse in linux, then the default is =default= source, otherwise this will likely need to be set. For MacOS users, the wiki contains a recipe that lets you set this interactively: [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#what-should-be-the-value-of-whisper--ffmpeg-input-device][see here]].
 
-Pulseaudio and PipeWire users who haven't further configured their =default= source may find that results are better when at least =echo cancel= filter is enabled, by loading relevant module. Then you could either set that as the default source (using e.g. =pactl=) or just use that source's name in =whisper--ffmpeg-input-device=. Furthermore, the following programs could be used to improve quality of audio recording in general:
+Pulseaudio and PipeWire users who haven't further configured their =default= source may find that results are better when at least =echocancel= filter is enabled, by loading relevant module. Then you could either set that as the default source (using e.g. =pactl=) or just use that source's name in =whisper--ffmpeg-input-device=. Furthermore, the following programs/plugins could be used to improve quality of audio recording in general:
 
 - [[https://github.com/wwmm/easyeffects][Easy Effects]]
+- [[https://github.com/werman/noise-suppression-for-voice][RNNoise Plugin]]
 - [[https://github.com/noisetorch/NoiseTorch][NoiseTorch]]
 - [[https://github.com/Rikorose/DeepFilterNet][DeepFilterNet]] (see also [[https://github.com/Rikorose/DeepFilterNet/blob/main/ladspa/README.md][PipeWire integration]])
 
@@ -89,17 +92,7 @@ There are a few hooks provided for registering user defined actions:
           (lambda ()
             (whisper--break-sentences 5))) ;; add a paragraph break every 5 sentences
   #+end_src
-- =whisper-after-insert-hook=: These functions are run after transcription is completed and the text has been inserted into the buffer. For example, you can pipe the output into another function:
-  #+begin_src elisp
-(defun pipe-transcribed-audio-to-foo ()
-  "Pipe whisper's transcription output into `foo'."
-  (let ((transcription (buffer-substring (line-beginning-position)
-                                         (line-end-position))))
-    (foo transcription)))
-
-(add-hook 'whisper-after-insert-hook
-          #'pipe-transcribed-audio-to-foo)
-  #+end_src
+- =whisper-after-insert-hook=: These functions are run after transcription is completed and the text has been inserted into the original buffer.
 
 *** Performance Guide for Advanced Users
 
@@ -117,42 +110,59 @@ Quantization is a technique to reduce the computational and memory costs of runn
 
 Offloading the encoder inference to hardware or optimised external libraries may result in speed-up. There are options to use: Core ML (for Apple hardware), cuBLAS (for NVIDIA GPU), OpenVINO (Intel CPU/GPU), CLBlast (for GPUs that support OpenCL), OpenBLAS (an optimised matrix processing library for CPU). Consult [[https://github.com/ggerganov/whisper.cpp][whisper.cpp README]] for how to re-compile whisper.cpp to enable those.
 
-**** Server Modes
-
-whisper.el supports three different modes of operation:
-
-***** Direct Mode (default)
-The default mode runs whisper.cpp directly for each transcription request. This is the simplest setup but requires loading the model each time.
-
-***** Local Server Mode
-When =whisper-server-mode= is set to =local=, whisper.el will run whisper.cpp as a persistent HTTP server. Benefits:
-- Model is loaded once and kept in memory
-- Better performance for multiple transcription requests
-- Server can be shared between multiple Emacs instances
-
-To use local server mode:
-#+begin_src elisp
-(setq whisper-server-mode 'local)
-#+end_src
-
-***** OpenAI API Mode
-When =whisper-server-mode= is set to =openai=, whisper.el will use OpenAI's official Whisper API. Benefits:
-- No local model or CPU requirements
-- Fast transcription
-
-To use OpenAI API mode:
-#+begin_src elisp
-(setq whisper-server-mode 'openai)
-(setq whisper-openai-api-key "your-api-key-here")
-#+end_src
-
-Note: OpenAI API mode requires an API key and will incur usage charges.
-
 **** Use something other than whisper.cpp
 
 If you think there is something else you want to use, you have the option to override the =whisper-command= function definition, or define an overriding advice. This function takes a path to input audio file as argument, and returns a list denoting the command (compatible to =:command= argument to [[https://www.gnu.org/software/emacs/manual/html_node/elisp/Asynchronous-Processes.html][make-process]]), to be run instead of whisper.cpp. You can use the variables described above in this readme to devise the command. The wiki [[https://github.com/natrys/whisper.el/wiki/Setup-to-use-whisper%E2%80%90ctranslate2-instead-of-whisper.cpp][contains a recipe]] that shows how to use [[https://github.com/Softcatala/whisper-ctranslate2][whisper-ctranslate2]] with whisper.el. This client is compatible to OpenAI's original one, so porting the recipe to use the original client should be possible.
 
 Note that when you are using something other than whisper.cpp, the onus is on you to make sure the target program is properly installed and relevant model files for it are downloaded beforehand. We don't support anything other than whisper.cpp so any problems integrating them with whisper.el that's specific to those software may strain our ability to address.
+
+**** Server Modes
+
+whisper.el supports three different modes of operation:
+
+***** Direct Mode (default)
+
+The default mode runs whisper.cpp directly for each transcription request. This is the simplest setup but requires the subprocess loading the model each time, and the latency incurred may or may not be trivial depending on your usage.
+
+***** Local Server Mode
+
+When =whisper-server-mode= is set to =local=, whisper.el will run whisper.cpp as a persistent HTTP server. Benefits:
+
+- Model is loaded once and kept in memory
+- Better performance for multiple transcription requests
+- Server can be shared between multiple Emacs instances and other programs
+
+To use local server mode:
+
+#+begin_src elisp
+(setq whisper-server-mode 'local)
+#+end_src
+
+***** OpenAI API Mode
+
+When =whisper-server-mode= is set to =openai=, whisper.el will use OpenAI's official Whisper API (or another compatible provider). Benefits:
+
+- No local model or CPU requirements
+- Access to better models (though often proprietary) with lower error rates
+- Fast transcription
+
+Note: You need to bring your API key (which will incur charges). Non-local services also have privacy issues.
+
+To use OpenAI API compatible server mode:
+
+#+begin_src elisp
+(setq whisper-server-mode 'openai
+      whisper-openai-api-key "your-api-key-here")
+#+end_src
+
+You don't necessarily have to use OpenAI service. Whisper is served by other providers like Groq. Or you could, for example use Mistral's open-weight model ([[https://mistral.ai/news/voxtral][Voxtral]]) from their platform:
+
+#+begin_src elisp
+(setq whisper-server-mode 'openai
+      whisper-openai-model "voxtral-mini-latest"
+      whisper-openai-api-baseurl "https://api.mistral.ai/"
+      whisper-openai-api-key (getenv "MISTRAL_API_KEY"))
+#+end_src
 
 *** Caveats
 

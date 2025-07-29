@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.3.3
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -58,7 +58,13 @@ Default is whisper.cpp default (which is number of cores but maxed at 4)."
 (defcustom whisper-install-directory (locate-user-emacs-file ".cache/")
   "Location of where whisper.cpp is installed."
   :type 'directory
-  :group 'whisper)
+  :group 'whisper
+  :set (lambda (sym val)
+         (set-default sym val)
+         (setq whisper--install-path
+               (concat
+                (expand-file-name (file-name-as-directory val))
+                "whisper.cpp/"))))
 
 (defcustom whisper-recording-timeout 300
   "Number of seconds after which recording will be automatically stopped."
@@ -135,8 +141,8 @@ Possible values:
 - local: Run whisper.cpp as local HTTP server
 - openai: Use OpenAI's Whisper API (requires API key)"
   :type '(choice (const :tag "Direct" nil)
-                (const :tag "Local Server" local)
-                (const :tag "OpenAI API" openai))
+                 (const :tag "Local Server" local)
+                 (const :tag "OpenAI API" openai))
   :set (lambda (sym val)
          (set-default sym val)
          (when (bound-and-true-p whisper--server-process)
@@ -154,14 +160,19 @@ Possible values:
   :type 'integer
   :group 'whisper)
 
+(defcustom whisper-openai-api-baseurl "https://api.openai.com/"
+  "URL for OpenAI compatible transcription API endpoint."
+  :type 'string
+  :group 'whisper)
+
 (defcustom whisper-openai-api-key nil
-  "API key for OpenAI's Whisper API.
+  "API key for OpenAI compatible transcription API.
 Required when using openai server mode."
   :type '(choice (const nil) string)
   :group 'whisper)
 
-(defcustom whisper-openai-api-url "https://api.openai.com/v1/audio/transcriptions"
-  "URL for OpenAI's Whisper API endpoint."
+(defcustom whisper-openai-model "gpt-4o-transcribe"
+  "Model to use in OpenAI compatible API."
   :type 'string
   :group 'whisper)
 
@@ -208,7 +219,7 @@ as its current buffer, and with point set to beginning of that buffer."
 (defcustom whisper-after-insert-hook nil
   "Hook run after whisper command has inserted the transcription.
 
-This hook will be run from the buffer in which the transcription was inserted."
+This hook will be run in the original buffer the text was just inserted."
   :type 'hook
   :group 'whisper)
 
@@ -225,67 +236,19 @@ This hook will be run from the buffer in which the transcription was inserted."
 (defvar whisper--transcribing-process nil)
 (defvar whisper--server-process nil)
 
-(defun whisper--process-curl-request (url headers params)
-  "Make curl request to URL with HEADERS and PARAMS and process response.
-Returns a process object configured with proper sentinel for JSON handling."
-  (make-process
-   :name "whisper-curl"
-   :command `("curl" "-s"
-             ,url
-             ,@(mapcan (lambda (h) (list "-H" h)) headers)
-             ,@(mapcan (lambda (p) (list "-F" p)) params))
-   :buffer (get-buffer-create whisper--stdout-buffer-name)
-   :stderr (get-buffer-create whisper--stderr-buffer-name)
-   :coding 'utf-8
-   :sentinel (lambda (_process event)
-              (unwind-protect
-                  (when-let* ((whisper--stdout-buffer (get-buffer whisper--stdout-buffer-name))
-                            (finished (and (buffer-live-p whisper--stdout-buffer)
-                                         (string-equal "finished\n" event))))
-                    (with-current-buffer whisper--stdout-buffer
-                      ;; Parse JSON response to get text
-                      (goto-char (point-min))
-                      (let* ((response (json-read-from-string (buffer-string)))
-                             (text (cdr (assoc 'text response))))
-                        (erase-buffer)
-                        (insert text))
-                      (when (= (buffer-size) 0)
-                        (error "Whisper command produced no output"))
-                      (goto-char (point-min))
-                      (run-hook-wrapped 'whisper-after-transcription-hook
-                                      (lambda (f)
-                                        (with-current-buffer whisper--stdout-buffer
-                                          (save-excursion
-                                            (funcall f)))
-                                        nil))
-                      (when (> (buffer-size) 0)
-                        (if whisper-insert-text-at-point
-                            (with-current-buffer (marker-buffer whisper--marker)
-                              (goto-char whisper--marker)
-                              (insert-buffer-substring whisper--stdout-buffer)
-                              (when whisper-return-cursor-to-start
-                                (goto-char whisper--marker)))
-                          (with-current-buffer
-                              (get-buffer-create
-                               (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
-                            (insert-buffer-substring whisper--stdout-buffer)
-                            (display-buffer (current-buffer)))))))
-                (set-marker whisper--marker nil)
-                (setq whisper--point-buffer nil)
-                (kill-buffer whisper--stdout-buffer-name)
-                (kill-buffer whisper--stderr-buffer-name)
-                (whisper--setup-mode-line :hide 'transcribing)
-                (message nil)
-                (run-hooks 'whisper-after-insert-hook)))))
-
 ;; Kill server process when Emacs exits
 (add-hook 'kill-emacs-hook
           (lambda ()
             (when (process-live-p whisper--server-process)
               (delete-process whisper--server-process))))
+
 (defvar whisper--marker (make-marker))
 
-(defvar whisper--install-path nil)
+(defvar whisper--install-path
+  (when whisper-install-directory
+    (concat
+     (expand-file-name (file-name-as-directory whisper-install-directory))
+     "whisper.cpp/")))
 
 (defvar whisper--temp-file
   (concat (temporary-file-directory) "emacs-whisper.wav")
@@ -353,7 +316,6 @@ If you want to use something other than whisper.cpp, you should override this
 function to produce the command for the inference engine of your choice."
   `(,(whisper--find-whispercpp-main)
     ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
-    ;; ,@(when whisper-enable-speed-up '("--speed-up"))
     ,@(when whisper-translate '("--translate"))
     ,@(when whisper-show-progress-in-mode-line '("--print-progress"))
     "--language" ,whisper-language
@@ -368,7 +330,7 @@ function to produce the command for the inference engine of your choice."
   "Determine what to show in mode line depending on PHASE."
   (if (eq phase 'recording)
       whisper--mode-line-recording-indicator
-    (if whisper--using-whispercpp
+    (if (and (not whisper-server-mode) whisper--using-whispercpp)
         '(:eval (concat whisper--mode-line-transcribing-indicator whisper--progress-level "%%"))
       whisper--mode-line-transcribing-indicator)))
 
@@ -457,35 +419,119 @@ Depending on the COMMAND we either show the indicator or hide it."
       (setq whisper--server-process
             (make-process
              :name "whisper-server"
-             :command (list (whisper--find-whispercpp-server)
-                           "--host" whisper-server-host
-                           "--port" (number-to-string whisper-server-port)
-                           "--model" (whisper--model-file whisper-quantize)
-                           "--language" whisper-language
-                           "--convert")
+             :command `(,(whisper--find-whispercpp-server)
+                        "--host" ,whisper-server-host
+                        "--port" ,(number-to-string whisper-server-port)
+                        "--model" ,(whisper--model-file whisper-quantize)
+                        "--language" ,whisper-language
+                        "--no-timestamps"
+                        ,@(when whisper-translate '("--translate"))
+                        ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads))))
              :buffer server-buffer
              :stderr error-buffer))
       ;; Give server time to start and verify it's running
       (sleep-for 1)
       (unless (process-live-p whisper--server-process)
         (with-current-buffer error-buffer
-          (error "Failed to start whisper server: %s" 
-                 (buffer-substring-no-properties (point-min) (point-max)))))))) 
+          (error "Failed to start whisper server: %s"
+                 (buffer-substring-no-properties (point-min) (point-max))))))))
+
+(defun whisper--pre-process-json-output ()
+  "Parse JSON output in current buffer and replace it in-place with text."
+  (goto-char (point-min))
+  (let* ((response (json-parse-buffer))
+         (text (gethash "text" response)))
+    (erase-buffer)
+    (insert text)))
+
+(defun whisper--pre-process-text-output ()
+  "Trim whitespace from output in current buffer."
+  (goto-char (point-min))
+  (skip-chars-forward " \n")
+  (when (> (point) (point-min))
+    (delete-region (point-min) (point)))
+  (goto-char (point-max))
+  (skip-chars-backward " \n")
+  (when (> (point-max) (point))
+    (delete-region (point) (point-max))))
+
+(defun whisper--handle-transcription-output (pre-processor)
+  "Handle transcription output after process finishes.
+
+PRE-PROCESSOR is a function that will be called first thing on the raw output."
+  (with-current-buffer (get-buffer whisper--stdout-buffer-name)
+    (funcall pre-processor)
+    (when (= (buffer-size) 0)
+      (error "Whisper command produced no output"))
+    (goto-char (point-min))
+    (run-hook-wrapped 'whisper-after-transcription-hook
+                      (lambda (f)
+                        (with-current-buffer (get-buffer whisper--stdout-buffer-name)
+                          (save-excursion
+                            (funcall f)))
+                        nil))
+    (when (> (buffer-size) 0)
+      (if whisper-insert-text-at-point
+          (with-current-buffer (marker-buffer whisper--marker)
+            (goto-char whisper--marker)
+            (insert-buffer-substring (get-buffer whisper--stdout-buffer-name))
+            (when whisper-return-cursor-to-start
+              (goto-char whisper--marker))
+            (run-hooks 'whisper-after-insert-hook))
+        (with-current-buffer
+            (get-buffer-create
+             (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
+          (insert-buffer-substring (get-buffer whisper--stdout-buffer-name))
+          (display-buffer (current-buffer))
+          (run-hooks 'whisper-after-insert-hook))))))
+
+(defun whisper--cleanup-transcription ()
+  "Clean up after transcription is finished or killed."
+  (set-marker whisper--marker nil)
+  (setq whisper--point-buffer nil)
+  (kill-buffer whisper--stdout-buffer-name)
+  (when (get-buffer whisper--stderr-buffer-name) (kill-buffer whisper--stderr-buffer-name))
+  (whisper--setup-mode-line :hide 'transcribing)
+  (message nil))
+
+(defun whisper--process-curl-request (url headers params)
+  "Make curl request to URL with HEADERS and PARAMS and process response."
+  (make-process
+   :name "whisper-curl"
+   :command `("curl" "-s"
+              ,url
+              ,@(mapcan (lambda (h) (list "-H" h)) headers)
+              ,@(mapcan (lambda (p) (list "-F" p)) params))
+   :buffer (get-buffer-create whisper--stdout-buffer-name)
+   :stderr (get-buffer-create whisper--stderr-buffer-name)
+   :coding 'utf-8
+   :sentinel (lambda (_process event)
+               (unwind-protect
+                   (when (and (get-buffer whisper--stdout-buffer-name)
+                              (string-equal "finished\n" event))
+                     (whisper--handle-transcription-output #'whisper--pre-process-json-output))
+                 (whisper--cleanup-transcription)))))
 
 (defun whisper--transcribe-via-openai ()
   "Transcribe audio using OpenAI's Whisper API."
   (unless whisper-openai-api-key
     (error "OpenAI API key not set. Please set whisper-openai-api-key"))
-  (message "[-] Transcribing via OpenAI Whisper API")
+  (when (and whisper-translate (string= whisper-openai-model "gpt-4o-transcribe"))
+    (error "\"gpt-4o-transcribe\" can't translate; please use \"whisper-1\" in `whisper-openai-model'"))
+  (message "[-] Transcribing/Translating via OpenAI Whisper API")
   (whisper--setup-mode-line :show 'transcribing)
   (setq whisper--transcribing-process
         (whisper--process-curl-request
-         whisper-openai-api-url
+         (file-name-concat whisper-openai-api-baseurl
+                           "v1/audio/"
+                           (if whisper-translate
+                               "translations"
+                             "transcriptions"))
          (list (concat "Authorization: Bearer " whisper-openai-api-key)
                "Content-Type: multipart/form-data")
-         (list (concat "file=@" whisper--temp-file)
-               (concat "language=" whisper-language)
-               "model=whisper-1"))))
+         `(,(concat "file=@" whisper--temp-file)
+           ,(concat "model=" whisper-openai-model)
+           ,@(unless whisper-translate (list (concat "language=" whisper-language)))))))
 
 (defun whisper--transcribe-via-local-server ()
   "Transcribe audio using the local whisper server."
@@ -502,71 +548,36 @@ Depending on the COMMAND we either show the indicator or hide it."
                "response_format=json"
                (concat "language=" whisper-language)))))
 
+(defun whisper--transcribe-via-subprocess ()
+  "Transcribe audio using local subprocess."
+  (message "[-] Transcribing/Translating audio")
+  (setq whisper--using-whispercpp (whisper--using-whispercpp-p))
+  (whisper--setup-mode-line :show 'transcribing)
+  (setq whisper--transcribing-process
+        (make-process
+         :name "whisper-transcribing"
+         :command (whisper-command whisper--temp-file)
+         :connection-type nil
+         :buffer (get-buffer-create whisper--stdout-buffer-name)
+         :stderr (if (and whisper-show-progress-in-mode-line whisper--using-whispercpp)
+                     (make-pipe-process
+                      :name "whisper-stderr"
+                      :filter #'whisper--get-whispercpp-progress)
+                   (get-buffer-create whisper--stderr-buffer-name))
+         :coding 'utf-8
+         :sentinel (lambda (_process event)
+                     (unwind-protect
+                         (when (and (get-buffer whisper--stdout-buffer-name)
+                                    (string-equal "finished\n" event))
+                           (whisper--handle-transcription-output #'whisper--pre-process-text-output))
+                       (whisper--cleanup-transcription))))))
+
 (defun whisper--transcribe-audio ()
   "Start audio transcribing process in the background."
-  (message "Server mode %S" whisper-server-mode)
-
   (pcase whisper-server-mode
     ('local (whisper--transcribe-via-local-server))
     ('openai (whisper--transcribe-via-openai))
-    ('nil
-    (message "[-] Transcribing/Translating audio")
-    (setq whisper--using-whispercpp (whisper--using-whispercpp-p))
-    (whisper--setup-mode-line :show 'transcribing)
-    (setq whisper--transcribing-process
-          (make-process
-           :name "whisper-transcribing"
-           :command (whisper-command whisper--temp-file)
-           :connection-type nil
-           :buffer (get-buffer-create whisper--stdout-buffer-name)
-           :stderr (if (and whisper-show-progress-in-mode-line whisper--using-whispercpp)
-                       (make-pipe-process
-                        :name "whisper-stderr"
-                        :filter #'whisper--get-whispercpp-progress)
-                     (get-buffer-create whisper--stderr-buffer-name))
-           :coding 'utf-8
-         :sentinel (lambda (_process event)
-                     (unwind-protect
-                         (when-let* ((whisper--stdout-buffer (get-buffer whisper--stdout-buffer-name))
-                                     (finished (and (buffer-live-p whisper--stdout-buffer)
-                                                    (string-equal "finished\n" event))))
-                           (with-current-buffer whisper--stdout-buffer
-                             (goto-char (point-min))
-                             (skip-chars-forward " \n")
-                             (when (> (point) (point-min))
-                               (delete-region (point-min) (point)))
-                             (goto-char (point-max))
-                             (skip-chars-backward " \n")
-                             (when (> (point-max) (point))
-                               (delete-region (point) (point-max)))
-                             (when (= (buffer-size) 0)
-                               (error "Whisper command produced no output"))
-                             (goto-char (point-min))
-                             (run-hook-wrapped 'whisper-after-transcription-hook
-                                               (lambda (f)
-                                                 (with-current-buffer whisper--stdout-buffer
-                                                   (save-excursion
-                                                     (funcall f)))
-                                                 nil))
-                             (when (> (buffer-size) 0)
-                               (if whisper-insert-text-at-point
-                                   (with-current-buffer (marker-buffer whisper--marker)
-                                     (goto-char whisper--marker)
-                                     (insert-buffer-substring whisper--stdout-buffer)
-                                     (when whisper-return-cursor-to-start
-                                       (goto-char whisper--marker)))
-                                 (with-current-buffer
-                                     (get-buffer-create
-                                      (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
-                                   (insert-buffer-substring whisper--stdout-buffer)
-                                   (display-buffer (current-buffer)))))))
-                       (set-marker whisper--marker nil)
-                       (setq whisper--point-buffer nil)
-                       (kill-buffer whisper--stdout-buffer-name)
-                       (unless whisper-show-progress-in-mode-line (kill-buffer whisper--stderr-buffer-name))
-                       (whisper--setup-mode-line :hide 'transcribing)
-                       (message nil)
-                       (run-hooks 'whisper-after-insert-hook))))))))
+    ('nil (whisper--transcribe-via-subprocess))))
 
 (defun whisper--check-model-consistency ()
   "Check if chosen language and model are consistent."
@@ -772,18 +783,18 @@ This is a dwim function that does different things depending on current state:
      (t
       (setq whisper--point-buffer (current-buffer))
       (run-hooks 'whisper-before-transcription-hook)
-      (when whisper-install-whispercpp
+      (when (and whisper-install-whispercpp (not (eq whisper-server-mode 'openai)))
         (whisper--check-model-consistency))
       (setq-default
        whisper--ffmpeg-input-file
        (pcase arg
-        ('nil nil)
-        ('(4)
-         (when-let* ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
-          (unless (file-readable-p file)
-            (error "Media file doesn't exist or isn't readable"))
-          file))
-        ((and (pred file-readable-p) file) file)))
+         ('nil nil)
+         ('(4)
+          (when-let* ((file (expand-file-name (read-file-name "Media file: " nil nil t))))
+            (unless (file-readable-p file)
+              (error "Media file doesn't exist or isn't readable"))
+            file))
+         ((and (pred file-readable-p) file) file)))
       (setq whisper--using-whispercpp nil)
       (cond
        ;; For server modes, skip whisper.cpp installation check
