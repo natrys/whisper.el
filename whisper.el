@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.0
+;; Version: 0.4.1
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -31,6 +31,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'whisper-languages)
 
 ;;; User facing options
 
@@ -276,10 +277,10 @@ This hook will be run in the original buffer the text was just inserted."
 (defvar whisper--progress-level "0")
 
 (defvar whisper--mode-line-recording-indicator
-  (propertize "" 'face font-lock-warning-face))
+  (propertize "" 'face 'font-lock-warning-face))
 
 (defvar whisper--mode-line-transcribing-indicator
-  (propertize "" 'face font-lock-warning-face))
+  (propertize "" 'face 'font-lock-warning-face))
 
 (defun whisper--check-buffer-read-only-p ()
   "Error out if current buffer is read-only."
@@ -819,27 +820,23 @@ This is a dwim function that does different things depending on current state:
   (let ((current-prefix-arg '(4)))
     (call-interactively #'whisper-run)))
 
+(defun whisper--complete-languages ()
+  "Returns completion function for interactive language change."
+  (let ((completions (mapcar #'car whisper--languages)))
+    (lambda (string pred action)
+      (if (eq action 'metadata)
+          `(metadata (display-sort-function . ,#'identity))
+        (complete-with-action action completions string pred)))))
+
 ;;;###autoload
 (defun whisper-select-language ()
   "Prompt user to select a language and set `whisper-language'."
   (interactive)
-  (let ((lang (completing-read
-               "Select language: "
-               '("auto" "af" "ar" "ay" "az" "be" "bg" "bn" "bs" "ca" "cs" "cy"
-                 "da" "de" "el" "en" "eo" "es" "et" "eu" "fa" "fi" "fr" "ga" "gl"
-                 "gu" "he" "hi" "hr" "ht" "hu" "hy" "id" "is" "it" "ja" "jv" "ka"
-                 "km" "kn" "ko" "ku" "ky" "la" "lb" "lo" "lt" "lv" "mg" "mi" "mk"
-                 "ml" "mn" "mr" "ms" "mt" "my" "ne" "nl" "no" "ny" "pa" "pl" "ps"
-                 "pt" "ro" "ru" "sd" "si" "sk" "sl" "sm" "sn" "so" "sq" "sr" "st"
-                 "su" "sv" "sw" "ta" "te" "tg" "th" "tl" "tr" "uk" "ur" "uz" "vi"
-                 "xh" "yi" "yo" "zh")
-               nil
-               t
-               nil
-               nil
-               whisper-language)))
-    (setq whisper-language lang)
-    (message "whisper-language set to %s" whisper-language)))
+  (when-let* ((lang (completing-read "Language: " (whisper--complete-languages)
+                                     nil t nil nil "auto"))
+              (code (cdr (assoc lang whisper--languages))))
+    (setq whisper-language code)
+    (message "whisper-language is now changed to \"%s\"" lang)))
 
 (provide 'whisper)
 ;;; whisper.el ends here

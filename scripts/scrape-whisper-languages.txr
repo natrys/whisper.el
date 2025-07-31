@@ -1,0 +1,33 @@
+#!/usr/bin/txr
+@(do
+   (defun capitalise (str)
+     (prog1 str (upd (car str) (op logand @1 (lognot 32))))))
+@(next @(open-process "curl" "r" (list "-sL" "https://api.github.com/repos/ggml-org/whisper.cpp/commits")))
+@(freeform)
+@resp
+@(bind commit @(mref (get-json resp) 0 "sha"))
+@(next @(open-process "curl" "r" (list "-sL" `https://github.com/ggml-org/whisper.cpp/raw/@commit/src/whisper.cpp`)))
+@(skip)
+static const std::map<std::string, std::pair<int, std::string>> g_lang = {
+@(line linenum)
+@ (collect)
+ { "@code", { @id, "@name", } },
+@ (until)
+};
+@ (end)
+@(output)
+;;; whisper-languages.el -*- lexical-binding: t; -*-
+
+(defvar whisper--languages
+  '(("Auto-Detect" . "auto")
+@ (repeat)
+    ("@(capitalise name)" . "@code")
+@ (end)
+  )
+  "Alist of whisper supported languages for audio.
+
+The language codes are from:
+https://github.com/ggerganov/whisper.cpp/blob/@commit/src/whisper.cpp#L@linenum")
+
+(provide 'whisper-languages)
+@(end)
