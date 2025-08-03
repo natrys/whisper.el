@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.1
+;; Version: 0.4.2
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -490,7 +490,7 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
   "Clean up after transcription is finished or killed."
   (set-marker whisper--marker nil)
   (setq whisper--point-buffer nil)
-  (kill-buffer whisper--stdout-buffer-name)
+  (when (get-buffer whisper--stdout-buffer-name) (kill-buffer whisper--stdout-buffer-name))
   (when (get-buffer whisper--stderr-buffer-name) (kill-buffer whisper--stderr-buffer-name))
   (whisper--setup-mode-line :hide 'transcribing)
   (message nil))
@@ -681,7 +681,8 @@ escapes me right now, to get let bindings work like synchronous code."
                     "cd " whisper-install-directory " && "
                     "git clone https://github.com/ggerganov/whisper.cpp && "
                     "cd whisper.cpp && "
-                    "CLICOLOR=0 make")))
+                    "CLICOLOR=0 cmake -B build && "
+                    "CLICOLOR=0 cmake --build build -j --config Release")))
               (setq whisper--compilation-buffer (get-buffer-create whisper--compilation-buffer-name))
               (add-hook 'compilation-finish-functions #'whisper--check-install-and-run)
               (compile make-commands)
