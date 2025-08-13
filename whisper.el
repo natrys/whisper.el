@@ -181,9 +181,21 @@ Required when using openai server mode."
   "Whether to put whisper output under point in current buffer.
 
 When nil, instead of inserting text under current point, a temporary buffer
-containing whisper output text is displayed.  The buffer name is distinguised
+containing whisper output text is created.  The buffer name is distinguised
 with current timestamp and it's the user's responsibility to kill the buffer if
-they want to."
+they want to.  Whether this buffer is displayed is controlled by
+`whisper-display-transcription-buffer'."
+  :type 'boolean
+  :group 'whisper)
+
+(defcustom whisper-display-transcription-buffer t
+  "Whether to display the temporary buffer with transcription.
+
+This variable only has an effect when `whisper-insert-text-at-point' is nil.
+When non-nil, the buffer with transcription is displayed.
+When nil, the buffer is created but not displayed.  This is useful for
+non-interactive scripting where user only intends to run the functions in
+`whisper-after-transcription-hook' and do their own thing with result."
   :type 'boolean
   :group 'whisper)
 
@@ -483,7 +495,8 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
             (get-buffer-create
              (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
           (insert-buffer-substring (get-buffer whisper--stdout-buffer-name))
-          (display-buffer (current-buffer))
+          (when whisper-display-transcription-buffer
+            (display-buffer (current-buffer)))
           (run-hooks 'whisper-after-insert-hook))))))
 
 (defun whisper--cleanup-transcription ()
@@ -772,7 +785,7 @@ This is a dwim function that does different things depending on current state:
 - When transcribing is in progress, cancels it."
   (interactive "P")
   (if (process-live-p whisper--transcribing-process)
-      (when (yes-or-no-p "A transcribing is already in progress, kill it?")
+      (when (yes-or-no-p "A transcribing job is already in progress, kill it?")
         (kill-process whisper--transcribing-process))
 
     (cond
