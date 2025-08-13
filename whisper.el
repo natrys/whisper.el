@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.2
+;; Version: 0.4.3
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -199,6 +199,14 @@ non-interactive scripting where user only intends to run the functions in
   :type 'boolean
   :group 'whisper)
 
+(defcustom whisper-transcription-buffer-name-function #'whisper--timestamped-transcription-buffer-name
+  "Function to generate the name of the transcription buffer.
+
+By default we create a timestamp based new buffer, but if you prefer to name
+it something simple and deterministic to avoid proliferation of such buffers
+then set it to `whisper--simple-transcription-buffer-name' instead."
+  :group 'whisper)
+
 (defcustom whisper-return-cursor-to-start t
   "Whether to re-position the cursor after transcription.
 
@@ -293,6 +301,14 @@ This hook will be run in the original buffer the text was just inserted."
 
 (defvar whisper--mode-line-transcribing-indicator
   (propertize "" 'face 'font-lock-warning-face))
+
+(defun whisper--timestamped-transcription-buffer-name ()
+  "Return a new transcription buffer name based on timestamp."
+  (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
+
+(defun whisper--simple-transcription-buffer-name ()
+  "Return a fixed transcription buffer name."
+  "*whisper-transcription-buffer*")
 
 (defun whisper--check-buffer-read-only-p ()
   "Error out if current buffer is read-only."
@@ -492,11 +508,12 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
               (goto-char whisper--marker))
             (run-hooks 'whisper-after-insert-hook))
         (with-current-buffer
-            (get-buffer-create
-             (format "*whisper-%s*" (format-time-string "%+4Y%m%d%H%M%S")))
+            (get-buffer-create (funcall whisper-transcription-buffer-name-function))
+          (erase-buffer)
           (insert-buffer-substring (get-buffer whisper--stdout-buffer-name))
           (when whisper-display-transcription-buffer
-            (display-buffer (current-buffer)))
+            (display-buffer (current-buffer))
+            (visual-line-mode))
           (run-hooks 'whisper-after-insert-hook))))))
 
 (defun whisper--cleanup-transcription ()
@@ -768,6 +785,14 @@ escapes me right now, to get let bindings work like synchronous code."
 
       ;; finally
       (whisper--record-audio))))
+
+(defun whisper-recording-p ()
+  "Predicate function to check if whisper is currently recording."
+  (process-live-p whisper--recording-process))
+
+(defun whisper-transcribing-p ()
+  "Predicate function to check if whisper is currently transcribing."
+  (process-live-p whisper--transcribing-process))
 
 ;;;###autoload
 (defun whisper-run (&optional arg)

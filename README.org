@@ -42,29 +42,39 @@ _Note for MacOS users_: If whisper.el is failing silently, it might be because E
 - =whisper-language=: Specify your spoken language. Default is =en=. For all possible short-codes: [[https://github.com/ggerganov/whisper.cpp/blob/aa6adda26e1ee9843dddb013890e3312bee52cfe/whisper.cpp#L31][see here]]. You can also set it to =auto= to allow whisper.cpp to infer the language from first 30 seconds of audio. How well whisper works will vary depending on the language. Some scores could be found in the original paper, or [[https://github.com/openai/whisper#available-models-and-languages][here]].
 - =whisper-model=: Which language model to use. Default is =base=. Valid values are: tiny, base, small, medium, large-v1, large-v2, large-v3, large-v3-turbo. Bigger models are more accurate, but takes more time and more RAM to run (aside from more disk space and download size), see: [[https://github.com/ggerganov/whisper.cpp#memory-usage][resource requirements]]. Note that tiny, base, small and medium come with =.en= variants (e.g. =small.en=) that might be faster, but are for English only.
 - =whisper-translate=: Default =nil= means transcription output language is same as spoken language. Setting it to =t= translates it to English first.
-- =whisper-insert-text-at-point=: By default whisper.el inserts the transcribed text at the point where =whisper-run= or =whisper-file= was invoked. But if you set this to =nil=, the text will be displayed in a separate buffer instead (if you don't want to display the buffer at all and want to take control of your your own workflow in =whisper-after-transcription-hook= then also set =whisper-display-transcription-buffer= to =nil=).
-- =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
 - =whisper-use-threads=: Default =nil= means let whisper.cpp choose appropriate value (which it sets with formula min(4, num_of_cores)). If you want to use more than 4 threads (as you have more than 4 cpu cores), set this number manually.
+
+Additionally, depending on your input device and system you may need to modify these variables to get recording to work:
+
+- =whisper--ffmpeg-input-format=: This is what you would pass to the =-f= flag of FFmpeg to input to record audio. Default is =pulse= on Linux, =avfoundation= on OSX and =dshow= on Windows.
+- =whisper--ffmpeg-input-device=: This is what you would pass to the =-i= flag of FFmpeg to record audio. If you are using pulseaudio or pipewire-pulse in linux, then the default is =default= source, otherwise this will likely need to be set. For MacOS users, the wiki contains a recipe that lets you set this interactively: [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#what-should-be-the-value-of-whisper--ffmpeg-input-device][see here]].
+
+Few other variables for customising workflow:
+
+- =whisper-insert-text-at-point=: By default whisper.el inserts the transcribed text at the point where =whisper-run= or =whisper-file= was invoked. But if you set this to =nil=, the text will be displayed in a separate buffer instead
+   - If you don't want to display the buffer at all and want to take control of your your own workflow through functions in =whisper-after-transcription-hook=, then also set =whisper-display-transcription-buffer= to =nil=.
+   - By default these temporary output buffers are differentiated by timestamp; you have to take care of cleanup once you are done. If you want to keep reusing the same buffer, do:
+     #+begin_src elisp
+(setq whisper-transcription-buffer-name-function #'whisper--simple-transcription-buffer-name)
+     #+end_src
+- =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
 - =whisper-server-mode=: Choose between different transcription modes:
    - =nil= (default): Use whisper.cpp directly
    - =local=: Run whisper.cpp as a local HTTP server for better performance with multiple requests
+      - =whisper-server-host=: Host address for the local whisper server (default ~127.0.0.1~)
+      - =whisper-server-port=: Port number for the local whisper server (default ~8642~)     
    - =openai=: Use OpenAI compatible transcription API (requires API key)
-- =whisper-server-host=: Host address for the local whisper server (default ~127.0.0.1~)
-- =whisper-server-port=: Port number for the local whisper server (default ~8642~)
-- =whisper-openai-api-baseurl=: When using OpenAI server mode by default we use their API but you could use other services too (e.g. for Mistral set it to ~https://api.mistral.ai~)
-- =whisper-openai-api-key=: API key for OpenAI compatible whisper API (required when using OpenAI server mode)
-- =whisper-openai-model=: When using OpenAI server mode we default to their best proprietary model ~gpt-4o-transcribe~ but you could use ~whisper-1~ or other service appropriate models like ~voxtral-mini-latest~ which is Mistral's open-weight model
+      - =whisper-openai-api-baseurl=: When using OpenAI server mode by default we use their API but you could use other services too (e.g. for Mistral set it to ~https://api.mistral.ai~)
+      - =whisper-openai-api-key=: API key for OpenAI compatible whisper API (required when using OpenAI server mode)
+      - =whisper-openai-model=: When using OpenAI server mode we default to their best proprietary model ~gpt-4o-transcribe~ but you could use ~whisper-1~ or other service appropriate models like ~voxtral-mini-latest~ which is Mistral's open-weight model
 - =whisper-recording-timeout=: Default is =300= seconds. We do not want to start recording and then forget. The intermediate temporary file is stored in uncompressed =wav= format (roughly 4.5mb per minute but can vary), they can grow and fill disk even if ~/tmp/~ is used for it by default.
 - =whisper-show-progress-in-mode-line=: By default, progress level of running job in whisper.cpp is shown in the mode line.
 - =whisper-quantize=: Whether to quantize the model (default =nil=). Non-nil valid values are: q4_0, q4_1, q5_0, q5_1, q8_0. For an explanation of what quantization means, [[https://github.com/natrys/whisper.el#quantize-the-model][see below]]. If it's defined, whisper.el will automatically quantize the model before using that.
 - =whisper-install-whispercpp=: By default the installation of whisper.cpp is done automatically. If you are on a platform where our automatic install fails, but you are able to do so manually at =whisper-install-directory=, you can set this to ='manual= to ensure we don't try and fail to install it automatically. Also if you are planning to not use whisper.cpp at all by overriding =whisper-command= ([[https://github.com/natrys/whisper.el#use-something-other-than-whispercpp][see below]]), you can just set this to =nil= to ensure no whisper.cpp related runtime checks and downloads will be performed.
 
-Additionally, depending on your input device and system you may need to modify these variables to get recording to work:
+*** Note on recording quality
 
-- =whisper--ffmpeg-input-format=: This is what you would pass to the =-f= flag of FFmpeg to input to record audio. Default is =pulse= on Linux, =avfoundation= on OSX and =dshow= on Windows.
-- =whisper--ffmpeg-input-device=: This is what you would pass to the =-i= flag of FFmpeg to record audio, like ~hw:0,2~ or something. If you are using pulseaudio or pipewire-pulse in linux, then the default is =default= source, otherwise this will likely need to be set. For MacOS users, the wiki contains a recipe that lets you set this interactively: [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#what-should-be-the-value-of-whisper--ffmpeg-input-device][see here]].
-
-Pulseaudio and PipeWire users who haven't further configured their =default= source may find that results are better when at least =echocancel= filter is enabled, by loading relevant module. Then you could either set that as the default source (using e.g. =pactl=) or just use that source's name in =whisper--ffmpeg-input-device=. Furthermore, the following programs/plugins could be used to improve quality of audio recording in general:
+Pulseaudio and PipeWire users who haven't further configured their =default= source may find that results are better when at least =echocancel= filter is enabled, by loading relevant module. Then you could either set that as the default source (using e.g. =pactl=) or just use that source's name in =whisper--ffmpeg-input-device=. Otherwise, the following programs/plugins could be used to improve quality of audio recording in general:
 
 - [[https://github.com/wwmm/easyeffects][Easy Effects]]
 - [[https://github.com/werman/noise-suppression-for-voice][RNNoise Plugin]]
