@@ -875,7 +875,7 @@ This is a dwim function that does different things depending on current state:
                                      nil t nil nil "auto"))
               (code (cdr (assoc lang whisper--languages))))
     (setq whisper-language code)
-    (message "whisper-language is now changed to \"%s\"" lang)))
+    (message "whisper-language is now set to %s (%s)" lang code)))
 
 (provide 'whisper)
 ;;; whisper.el ends here

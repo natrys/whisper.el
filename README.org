@@ -2,9 +2,9 @@
 
 ** whisper.el
 
-Speech-to-Text interface for Emacs using OpenAI's [[https://github.com/openai/whisper][whisper speech recognition model]]. For the inference engine it uses the awesome C/C++ port [[https://github.com/ggerganov/whisper.cpp][whisper.cpp]] that can run on consumer grade CPU (without requiring a high end GPU).
+Speech-to-Text interface for Emacs using OpenAI's [[https://github.com/openai/whisper][whisper speech recognition model]]. For inference, it uses the C/C++ port [[https://github.com/ggerganov/whisper.cpp][whisper.cpp]] that can run on consumer grade CPU without requiring a high end GPU.
 
-You can capture audio with your local input device (microphone) or choose a media file on disk in your local language, and have the transcribed text pasted to your Emacs buffer (optionally after translating to English). This runs offline without having to use non-free cloud service for decent result (though result quality of whisper varies widely depending on language, see below).
+You can capture audio with your input device (microphone) or choose a media file on disk, and have the transcribed text inserted into your Emacs buffer, optionally after translating to English from your local language. This runs offline without having to use non-free cloud services (though quality varies depending on the [[https://github.com/openai/whisper#available-models-and-languages][language]]).
 
 *** Install and Usage
 
@@ -24,22 +24,30 @@ You can install =whisper.el= by cloning this repo somewhere, and then use it lik
         whisper-use-threads (/ (num-processors) 2)))
 #+end_src
 
-You will use these functions:
+Or from Emacs 29.1 onwards you can install a package directly from vc source:
+
+#+begin_src elisp
+(use-package whisper
+  :vc (:url "https://github.com/natrys/whisper.el" :branch "master"))
+#+end_src
+
+The entry points of this package are these two functions:
 
 - =whisper-run=: Toggle between recording from your microphone and transcribing
 - =whisper-file=: Same as before but transcribes a local file on disk
-- =whisper-select-language=: Select your language interactively
 
 Invoking =whisper-run= with a prefix argument (C-u) has the same effect as =whisper-file=.
 
-Both of these functions will automatically compile whisper.cpp dependency and download language model the first time they are run. When recording is in progress, invoking them stops it and starts transcribing. Otherwise if compilation, download (of model file) or transcription job is in progress, calling them again cancels that.
+Both of these functions will automatically compile whisper.cpp dependency and download language model the first time they are run. When recording is in progress, invoking them stops it and starts transcribing. Otherwise if compilation, download (of model file) or transcription job is in progress, calling them again stops that.
 
-_Note for MacOS users_: If whisper.el is failing silently, it might be because Emacs doesn't have the permission to use the Mic. Follow the [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#grant-emacs-permission-to-use-mic][recipe]] in wiki to grant it explicitly.
+Additionally, =whisper-select-language= function lets you set your language interactively.
+
+_Note for MacOS users_: If whisper.el is failing silently, it might be because Emacs doesn't have the permission to use the Mic. Follow one of the [[https://github.com/natrys/whisper.el/wiki/MacOS-Configuration#grant-emacs-permission-to-use-mic][recipes]] in wiki to grant it explicitly.
 
 *** Variables
 
 - =whisper-install-directory=: Location where whisper.cpp will be installed. Default is =~/.emacs.d/.cache/=.
-- =whisper-language=: Specify your spoken language. Default is =en=. For all possible short-codes: [[https://github.com/ggerganov/whisper.cpp/blob/aa6adda26e1ee9843dddb013890e3312bee52cfe/whisper.cpp#L31][see here]]. You can also set it to =auto= to allow whisper.cpp to infer the language from first 30 seconds of audio. How well whisper works will vary depending on the language. Some scores could be found in the original paper, or [[https://github.com/openai/whisper#available-models-and-languages][here]].
+- =whisper-language=: Specify your spoken language; default is =en=. For all possible short-codes (ISO 639-1): [[https://github.com/ggerganov/whisper.cpp/blob/aa6adda26e1ee9843dddb013890e3312bee52cfe/whisper.cpp#L31][see here]]. You can also set it to =auto= to allow whisper.cpp to infer the language from first 30 seconds of audio. Note that you can set this interactively with =whisper-select-language= function too.
 - =whisper-model=: Which language model to use. Default is =base=. Valid values are: tiny, base, small, medium, large-v1, large-v2, large-v3, large-v3-turbo. Bigger models are more accurate, but takes more time and more RAM to run (aside from more disk space and download size), see: [[https://github.com/ggerganov/whisper.cpp#memory-usage][resource requirements]]. Note that tiny, base, small and medium come with =.en= variants (e.g. =small.en=) that might be faster, but are for English only.
 - =whisper-translate=: Default =nil= means transcription output language is same as spoken language. Setting it to =t= translates it to English first.
 - =whisper-use-threads=: Default =nil= means let whisper.cpp choose appropriate value (which it sets with formula min(4, num_of_cores)). If you want to use more than 4 threads (as you have more than 4 cpu cores), set this number manually.
@@ -133,17 +141,11 @@ whisper.el supports three different modes of operation:
 
 ***** Direct Mode (default)
 
-The default mode runs whisper.cpp directly for each transcription request. This is the simplest setup but requires the subprocess loading the model each time, and the latency incurred may or may not be trivial depending on your usage.
+The default mode runs whisper.cpp directly for each transcription request. This is the simplest setup but requires the subprocess loading the model each time, and the latency incurred may or may not be trivial depending on your machine and usage.
 
 ***** Local Server Mode
 
-When =whisper-server-mode= is set to =local=, whisper.el will run whisper.cpp as a persistent HTTP server. Benefits:
-
-- Model is loaded once and kept in memory
-- Better performance for multiple transcription requests
-- Server can be shared between multiple Emacs instances and other programs
-
-To use local server mode:
+When =whisper-server-mode= is set to =local=, whisper.el will run whisper.cpp as a persistent HTTP server. Benefits: model is loaded once and kept in memory, better performance for multiple transcription requests, server can be shared between multiple Emacs instances and other programs etc. To use local server mode:
 
 #+begin_src elisp
 (setq whisper-server-mode 'local)
@@ -151,19 +153,15 @@ To use local server mode:
 
 ***** OpenAI API Mode
 
-When =whisper-server-mode= is set to =openai=, whisper.el will use OpenAI's official Whisper API (or another compatible provider). Benefits:
+When =whisper-server-mode= is set to =openai=, whisper.el will use OpenAI's official Whisper API (or another compatible provider). Benefits: no local model or CPU requirements, access to better models (though often proprietary) with lower error rates, potentially faster transcription etc.
 
-- No local model or CPU requirements
-- Access to better models (though often proprietary) with lower error rates
-- Fast transcription
-
-Note: You need to bring your API key (which will incur charges). Non-local services also have privacy issues.
+_Note_: You need to bring your API key (which will incur charges). Non-local services also have privacy issues.
 
 To use OpenAI API compatible server mode:
 
 #+begin_src elisp
 (setq whisper-server-mode 'openai
-      whisper-openai-api-key "your-api-key-here")
+      whisper-openai-api-key (getenv "OPENAI_API_KEY"))
 #+end_src
 
 You don't necessarily have to use OpenAI service. Whisper is served by other providers like Groq. Or you could, for example use Mistral's open-weight model ([[https://mistral.ai/news/voxtral][Voxtral]]) from their platform:
