@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.3
+;; Version: 0.4.4
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -312,7 +312,9 @@ This hook will be run in the original buffer the text was just inserted."
 
 (defun whisper--check-buffer-read-only-p ()
   "Error out if current buffer is read-only."
-  (when (and whisper-insert-text-at-point buffer-read-only)
+  (when (and whisper-insert-text-at-point
+             buffer-read-only
+             (not (eq major-mode 'vterm-mode)))
     (error "Buffer is read-only, can't insert text here")))
 
 ;; Maybe sox would be a lighter choice for something this simple?
@@ -484,6 +486,21 @@ Depending on the COMMAND we either show the indicator or hide it."
   (when (> (point-max) (point))
     (delete-region (point) (point-max))))
 
+(defun whisper--insert-text (text)
+  "Inserts transcribed text in current buffer according to context."
+  (let ((mode major-mode))
+    (cond
+     ((eq mode 'vterm-mode) (when (fboundp 'vterm-send-string)
+                              (vterm-send-string text)))
+     ((eq mode 'eat-mode) (when (and (fboundp 'eat-term-send-string) eat-terminal)
+                            (eat-term-send-string eat-terminal text)))
+     ((eq mode 'exwm-mode) (when (fboundp 'exwm-input--fake-key)
+                             (kill-new text)
+                             (exwm-input--fake-key ?\C-v)
+                             (setq kill-ring (cdr kill-ring)
+                                   kill-ring-yank-pointer kill-ring)))
+     (t (insert text)))))
+
 (defun whisper--handle-transcription-output (pre-processor)
   "Handle transcription output after process finishes.
 
@@ -503,7 +520,9 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
       (if whisper-insert-text-at-point
           (with-current-buffer (marker-buffer whisper--marker)
             (goto-char whisper--marker)
-            (insert-buffer-substring (get-buffer whisper--stdout-buffer-name))
+            (whisper--insert-text
+             (with-current-buffer (get-buffer whisper--stdout-buffer-name)
+               (buffer-string)))
             (when whisper-return-cursor-to-start
               (goto-char whisper--marker))
             (run-hooks 'whisper-after-insert-hook))
