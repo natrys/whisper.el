@@ -135,23 +135,6 @@ responsibility to override `whisper-command' with appropriate function."
   :type '(choice boolean (const manual))
   :group 'whisper)
 
-;; NEW/MODIFIED CODE START
-(defcustom whisper-cli-path nil
-  "Path to an existing whisper-cli executable.
-If set, this path is used directly, bypassing the automatic
-installation of whisper.cpp. Set this to the path provided by
-an external package manager like Homebrew."
-  :type '(choice (const nil) string)
-  :group 'whisper)
-
-(defcustom whisper-models-directory nil
-  "Path to the directory containing pre-downloaded whisper.cpp models.
-If set, whisper.el will look for model files (e.g., ggml-base.bin)
-in this directory instead of trying to download them."
-  :type '(choice (const nil) directory)
-  :group 'whisper)
-;; NEW/MODIFIED CODE END
-
 (defcustom whisper-server-mode nil
   "Server mode to use for transcription.
 Possible values:
@@ -176,6 +159,13 @@ Possible values:
 (defcustom whisper-server-port 8642
   "Port number for the whisper server."
   :type 'integer
+  :group 'whisper)
+
+(defcustom whisper-curl-path "curl"
+  "Path to the curl executable.
+This can be either just the executable name -
+(if it's in PATH) or the full path to the curl binary."
+  :type 'string
   :group 'whisper)
 
 (defcustom whisper-openai-api-baseurl "https://api.openai.com/"
@@ -222,6 +212,7 @@ non-interactive scripting where user only intends to run the functions in
 By default we create a timestamp based new buffer, but if you prefer to name
 it something simple and deterministic to avoid proliferation of such buffers
 then set it to `whisper--simple-transcription-buffer-name' instead."
+  :type 'function
   :group 'whisper)
 
 (defcustom whisper-return-cursor-to-start t
@@ -357,19 +348,12 @@ This hook will be run in the original buffer the text was just inserted."
     "-ar" "16000"
     "-y" ,output-file))
 
-;; NEW/MODIFIED CODE START
-(defun whisper--get-executable-path ()
-  "Return the path to the whisper executable.
-Prioritizes `whisper-cli-path` if set, otherwise falls back
-to finding the executable in `whisper-install-path`."
-  (or whisper-cli-path (whisper--find-whispercpp-main)))
-
 (defun whisper-command (input-file)
   "Produces whisper.cpp command to be run on the INPUT-FILE.
 
 If you want to use something other than whisper.cpp, you should override this
 function to produce the command for the inference engine of your choice."
-  `(,(whisper--get-executable-path)
+  `(,(whisper--find-whispercpp-main)
     ,@(when whisper-use-threads (list "--threads" (number-to-string whisper-use-threads)))
     ,@(when whisper-translate '("--translate"))
     ,@(when whisper-show-progress-in-mode-line '("--print-progress"))
@@ -377,7 +361,6 @@ function to produce the command for the inference engine of your choice."
     "--model" ,(whisper--model-file whisper-quantize)
     "--no-timestamps"
     "--file" ,input-file))
-;; NEW/MODIFIED CODE END
 
 (defalias 'whisper--transcribe-command 'whisper-command)
 (make-obsolete 'whisper--transcribe-command 'whisper-command "0.1.6")
@@ -573,10 +556,10 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
   "Make curl request to URL with HEADERS and PARAMS and process response."
   (make-process
    :name "whisper-curl"
-   :command `("curl" "-s"
-              ,url
-              ,@(mapcan (lambda (h) (list "-H" h)) headers)
-              ,@(mapcan (lambda (p) (list "-F" p)) params))
+   :command `(,whisper-curl-path "-s"
+                                 ,url
+                                 ,@(mapcan (lambda (h) (list "-H" h)) headers)
+                                 ,@(mapcan (lambda (p) (list "-F" p)) params))
    :buffer (get-buffer-create whisper--stdout-buffer-name)
    :stderr (get-buffer-create whisper--stderr-buffer-name)
    :coding 'utf-8
@@ -678,22 +661,13 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
       (unless (string-match-p quantization-pattern whisper-quantize)
         (error "Quantization format not recognized")))))
 
-;; NEW/MODIFIED CODE START
 (defun whisper--model-file (quantized)
-  "Return path of QUANTIZED model file.
-Uses `whisper-models-directory` if set, otherwise falls back to
-the managed `whisper-install-directory`."
-  (let* ((name (if quantized
-                   (concat whisper-model "-" whisper-quantize)
-                 whisper-model))
-         (model-filename (concat "ggml-" name ".bin")))
-    (if whisper-models-directory
-        (expand-file-name model-filename whisper-models-directory)
-      (let ((base (concat
-                   (expand-file-name (file-name-as-directory whisper-install-directory))
-                   "whisper.cpp/")))
-        (concat base "models/" model-filename)))))
-;; NEW/MODIFIED CODE END
+  "Return path of QUANTIZED model file relative to `whisper-install-directory'."
+  (let ((base (concat
+               (expand-file-name (file-name-as-directory whisper-install-directory))
+               "whisper.cpp/"))
+        (name (if quantized (concat whisper-model "-" whisper-quantize) whisper-model)))
+    (concat base "models/ggml-" name ".bin")))
 
 (defun whisper--check-install-and-run (buffer status)
   "Run whisper after ensuring installation correctness.
@@ -749,13 +723,10 @@ escapes me right now, to get let bindings work like synchronous code."
 
       (setq whisper--install-path base)
 
-      ;; NEW/MODIFIED CODE START
-      (when (and (not whisper-cli-path) ;; <-- Skip if user provides their own executable
-                 (not (or (string-equal "interrupt\n" status)
+      (when (and (not (or (string-equal "interrupt\n" status)
                           (string-prefix-p "exited abnormally with code" status)))
                  (not (or (file-exists-p (concat base old-bin-name)) ;; old location
                           (file-exists-p (concat base "build/bin/" bin-name)))))
-      ;; NEW/MODIFIED CODE END
 
         (when (eq whisper-install-whispercpp 'manual)
           (error (format "Couldn't find whisper.cpp install at: %s" base)))
@@ -775,12 +746,9 @@ escapes me right now, to get let bindings work like synchronous code."
               (throw 'early-return nil))
           (error "Needs whisper.cpp to be installed")))
 
-      ;; NEW/MODIFIED CODE START
-      (when (and (not whisper-models-directory) ;; <-- Skip if user provides their own models
-                 (not (file-exists-p (whisper--model-file nil)))
+      (when (and (not (file-exists-p (whisper--model-file nil)))
                  (not (or (string-equal "interrupt\n" status)
                           (string-prefix-p "exited abnormally with code" status))))
-      ;; NEW/MODIFIED CODE END
         (if (yes-or-no-p (format "Speech recognition model \"%s\" isn't available, download now?" whisper-model))
             (let ((make-commands
                    (concat
@@ -792,13 +760,10 @@ escapes me right now, to get let bindings work like synchronous code."
               (throw 'early-return nil))
           (error "Needs speech recognition model to run whisper")))
 
-      ;; NEW/MODIFIED CODE START
       (when (and whisper-quantize
-                 (not whisper-models-directory) ;; <-- Skip if user provides their own models
                  (not (file-exists-p (whisper--model-file t)))
                  (not (or (string-equal "interrupt\n" status)
                           (string-prefix-p "exited abnormally with code" status))))
-      ;; NEW/MODIFIED CODE END
         (if (not (file-exists-p (concat base "build/bin/quantize")))
             (let ((make-commands
                    (concat
@@ -835,7 +800,7 @@ escapes me right now, to get let bindings work like synchronous code."
         (if (eq whisper-install-whispercpp 'manual)
             (message "Compilation exited abnormally, but not deleting directory because installation is manual.")
           (progn
-            (delete-directory whisper--install-path t)
+            ;; (delete-directory whisper--install-path t)
             (message "Couldn't compile whisper.cpp. Check that you have Git, a C++ compiler and CMake installed.")))
         (display-buffer whisper--compilation-buffer)
         (throw 'early-return nil))
