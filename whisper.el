@@ -181,7 +181,7 @@ Required when using openai server mode."
   "Whether to put whisper output under point in current buffer.
 
 When nil, instead of inserting text under current point, a temporary buffer
-containing whisper output text is created.  The buffer name is distinguised
+containing whisper output text is created.  The buffer name is distinguished
 with current timestamp and it's the user's responsibility to kill the buffer if
 they want to.  Whether this buffer is displayed is controlled by
 `whisper-display-transcription-buffer'."
@@ -838,7 +838,7 @@ This is a dwim function that does different things depending on current state:
      ((and (buffer-live-p whisper--compilation-buffer)
            (process-live-p (get-buffer-process whisper--compilation-buffer)))
       (when-let* ((proc (get-buffer-process whisper--compilation-buffer)))
-	(interrupt-process proc)))
+	    (interrupt-process proc)))
      (t
       (setq whisper--point-buffer (current-buffer))
       (run-hooks 'whisper-before-transcription-hook)
