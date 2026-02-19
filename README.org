@@ -68,9 +68,9 @@ Few other variables for customising workflow:
 - =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
 - =whisper-server-mode=: Choose between different transcription modes:
    - =nil= (default): Use whisper.cpp directly
-   - =local=: Run whisper.cpp as a local HTTP server for better performance with multiple requests
-      - =whisper-server-host=: Host address for the local whisper server (default ~127.0.0.1~)
-      - =whisper-server-port=: Port number for the local whisper server (default ~8642~)     
+   - =local=: Spawns a whisper.cpp local HTTP server and uses that over network
+   - =remote=: In case you already have whisper.cpp HTTP server running in a remote machine
+      - =whisper-server-baseurl=: Base URL for the whisper.cpp server (for both =local= or =remote= modes). Should be a full URL including protocol, host, and port (e.g. ~http://localhost:8642~ or ~https://whisper.example.com~)
    - =openai=: Use OpenAI compatible transcription API (requires API key)
       - =whisper-openai-api-baseurl=: When using OpenAI server mode by default we use their API but you could use other services too (e.g. for Mistral set it to ~https://api.mistral.ai~)
       - =whisper-openai-api-key=: API key for OpenAI compatible whisper API (required when using OpenAI server mode)
@@ -148,8 +148,20 @@ The default mode runs whisper.cpp directly for each transcription request. This 
 When =whisper-server-mode= is set to =local=, whisper.el will run whisper.cpp as a persistent HTTP server. Benefits: model is loaded once and kept in memory, better performance for multiple transcription requests, server can be shared between multiple Emacs instances and other programs etc. To use local server mode:
 
 #+begin_src elisp
-(setq whisper-server-mode 'local)
+(setq whisper-server-mode 'local
+      whisper-server-baseurl "http://127.0.0.1:8642")
 #+end_src
+
+***** Remote Server Mode
+
+For when you want to connect to an existing whisper.cpp server running on e.g. another machine.
+
+#+begin_src elisp
+(setq whisper-server-mode 'remote
+      whisper-server-baseurl "http://192.168.0.101:8642")
+#+end_src
+
+You need to ensure the server is running and is accessible (for the =/inference= endpoint).
 
 ***** OpenAI API Mode
 

@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.4
+;; Version: 0.4.5
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -31,6 +31,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'url-parse)
 (require 'whisper-languages)
 
 ;;; User facing options
@@ -140,9 +141,11 @@ responsibility to override `whisper-command' with appropriate function."
 Possible values:
 - nil: Use local whisper.cpp directly
 - local: Run whisper.cpp as local HTTP server
+- remote: Use a remote whisper.cpp server
 - openai: Use OpenAI's Whisper API (requires API key)"
   :type '(choice (const :tag "Direct" nil)
                  (const :tag "Local Server" local)
+                 (const :tag "Remote Server" remote)
                  (const :tag "OpenAI API" openai))
   :set (lambda (sym val)
          (set-default sym val)
@@ -151,13 +154,28 @@ Possible values:
            (setq whisper--server-process nil)))
   :group 'whisper)
 
+(defcustom whisper-server-baseurl nil
+  "Base URL for the whisper server.
+This should be the full URL including protocol, host, and port.
+For example: \"http://localhost:8642\" or \"https://whisper.example.com\"
+
+If this is nil, falls back to constructing URL from `whisper-server-host'
+and `whisper-server-port' (for backward compatibility)."
+  :type '(choice (const :tag "Use host/port instead (for backward compatibility)" nil)
+                 string)
+  :group 'whisper)
+
+(define-obsolete-variable-alias 'whisper-server-host 'whisper-server-baseurl "0.4.5")
 (defcustom whisper-server-host "127.0.0.1"
-  "Host address for the whisper server."
+  "Host address for the whisper server.
+This is now only used when `whisper-server-baseurl' is nil."
   :type 'string
   :group 'whisper)
 
+(define-obsolete-variable-alias 'whisper-server-port 'whisper-server-baseurl "0.4.5")
 (defcustom whisper-server-port 8642
-  "Port number for the whisper server."
+  "Port number for the whisper server.
+This is now only used when `whisper-server-baseurl' is nil."
   :type 'integer
   :group 'whisper)
 
@@ -411,6 +429,28 @@ Depending on the COMMAND we either show the indicator or hide it."
          (bin-path (concat base "build/bin/" bin-name)))
     bin-path))
 
+(defun whisper--server-base-url ()
+  "Return the effective server base URL.
+Uses `whisper-server-baseurl' if set, otherwise constructs from
+`whisper-server-host' and `whisper-server-port'."
+  (or whisper-server-baseurl
+      (format "http://%s:%d" whisper-server-host whisper-server-port)))
+
+(defun whisper--server-host ()
+  "Extract host from server base URL for local server binding."
+  (if whisper-server-baseurl
+      (let ((url (url-generic-parse-url whisper-server-baseurl)))
+        (or (url-host url) "127.0.0.1"))
+    whisper-server-host))
+
+(defun whisper--server-port ()
+  "Extract port from server base URL for local server binding."
+  (if whisper-server-baseurl
+      (let* ((url (url-generic-parse-url whisper-server-baseurl))
+             (port (url-port url)))
+        (or port 8642))
+    whisper-server-port))
+
 (defun whisper--record-audio ()
   "Start audio recording process in the background."
   (when whisper-insert-text-at-point
@@ -451,8 +491,8 @@ Depending on the COMMAND we either show the indicator or hide it."
             (make-process
              :name "whisper-server"
              :command `(,(whisper--find-whispercpp-server)
-                        "--host" ,whisper-server-host
-                        "--port" ,(number-to-string whisper-server-port)
+                        "--host" ,(whisper--server-host)
+                        "--port" ,(number-to-string (whisper--server-port))
                         "--model" ,(whisper--model-file whisper-quantize)
                         "--language" ,whisper-language
                         "--no-timestamps"
@@ -583,14 +623,17 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
            ,(concat "model=" whisper-openai-model)
            ,@(unless whisper-translate (list (concat "language=" whisper-language)))))))
 
-(defun whisper--transcribe-via-local-server ()
-  "Transcribe audio using the local whisper server."
-  (message "[-] Transcribing via local server")
+(defun whisper--transcribe-via-local-server (&optional skip-start)
+  "Transcribe audio using a whisper.cpp server.
+
+When SKIP-START is non-nil, do not attempt to start a local server."
+  (message "[-] Transcribing via %s server" (if skip-start "remote" "local"))
   (whisper--setup-mode-line :show 'transcribing)
-  (whisper--ensure-server)
+  (unless skip-start
+    (whisper--ensure-server))
   (setq whisper--transcribing-process
         (whisper--process-curl-request
-         (format "http://%s:%d/inference" whisper-server-host whisper-server-port)
+         (file-name-concat (whisper--server-base-url) "inference")
          (list "Content-Type: multipart/form-data")
          (list (concat "file=@" whisper--temp-file)
                "temperature=0.0"
@@ -626,6 +669,7 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
   "Start audio transcribing process in the background."
   (pcase whisper-server-mode
     ('local (whisper--transcribe-via-local-server))
+    ('remote (whisper--transcribe-via-local-server t))
     ('openai (whisper--transcribe-via-openai))
     ('nil (whisper--transcribe-via-subprocess))))
 
@@ -842,7 +886,8 @@ This is a dwim function that does different things depending on current state:
      (t
       (setq whisper--point-buffer (current-buffer))
       (run-hooks 'whisper-before-transcription-hook)
-      (when (and whisper-install-whispercpp (not (eq whisper-server-mode 'openai)))
+      (when (and whisper-install-whispercpp
+                 (not (memq whisper-server-mode '(openai remote))))
         (whisper--check-model-consistency))
       (setq-default
        whisper--ffmpeg-input-file
