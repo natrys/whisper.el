@@ -66,6 +66,7 @@ Few other variables for customising workflow:
 (setq whisper-transcription-buffer-name-function #'whisper--simple-transcription-buffer-name)
      #+end_src
 - =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
+- =whisper-curl-path=: Path to the curl executable. Default is =curl= (uses system PATH). Set this if you need to use a specific curl binary, e.g. ="/usr/local/bin/curl"= or ="/opt/homebrew/bin/curl"=.
 - =whisper-server-mode=: Choose between different transcription modes:
    - =nil= (default): Use whisper.cpp directly
    - =local=: Spawns a whisper.cpp local HTTP server and uses that over network

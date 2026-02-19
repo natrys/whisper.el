@@ -179,6 +179,13 @@ This is now only used when `whisper-server-baseurl' is nil."
   :type 'integer
   :group 'whisper)
 
+(defcustom whisper-curl-path "curl"
+  "Path to the curl executable.
+This can be either just the executable name -
+(if it's in PATH) or the full path to the curl binary."
+  :type 'string
+  :group 'whisper)
+
 (defcustom whisper-openai-api-baseurl "https://api.openai.com/"
   "URL for OpenAI compatible transcription API endpoint."
   :type 'string
@@ -223,6 +230,7 @@ non-interactive scripting where user only intends to run the functions in
 By default we create a timestamp based new buffer, but if you prefer to name
 it something simple and deterministic to avoid proliferation of such buffers
 then set it to `whisper--simple-transcription-buffer-name' instead."
+  :type 'function
   :group 'whisper)
 
 (defcustom whisper-return-cursor-to-start t
@@ -588,10 +596,10 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
   "Make curl request to URL with HEADERS and PARAMS and process response."
   (make-process
    :name "whisper-curl"
-   :command `("curl" "-s"
-              ,url
-              ,@(mapcan (lambda (h) (list "-H" h)) headers)
-              ,@(mapcan (lambda (p) (list "-F" p)) params))
+   :command `(,whisper-curl-path "-s"
+                                 ,url
+                                 ,@(mapcan (lambda (h) (list "-H" h)) headers)
+                                 ,@(mapcan (lambda (p) (list "-F" p)) params))
    :buffer (get-buffer-create whisper--stdout-buffer-name)
    :stderr (get-buffer-create whisper--stderr-buffer-name)
    :coding 'utf-8
@@ -836,7 +844,7 @@ escapes me right now, to get let bindings work like synchronous code."
         (if (eq whisper-install-whispercpp 'manual)
             (message "Compilation exited abnormally, but not deleting directory because installation is manual.")
           (progn
-            (delete-directory whisper--install-path t)
+            ;; (delete-directory whisper--install-path t)
             (message "Couldn't compile whisper.cpp. Check that you have Git, a C++ compiler and CMake installed.")))
         (display-buffer whisper--compilation-buffer)
         (throw 'early-return nil))
