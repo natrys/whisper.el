@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.5
+;; Version: 0.4.6
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -225,12 +225,33 @@ it something simple and deterministic to avoid proliferation of such buffers
 then set it to `whisper--simple-transcription-buffer-name' instead."
   :group 'whisper)
 
+(define-obsolete-variable-alias 'whisper-return-cursor-to-start 'whisper-return-cursor "0.4.6")
 (defcustom whisper-return-cursor-to-start t
   "Whether to re-position the cursor after transcription.
+
+This variable is obsolete; use `whisper-return-cursor' instead.
 
 When non-nil, the cursor is returned to the original invocation point.
 Otherwise, the cursor remains at the end of the inserted transcription."
   :type 'boolean
+  :set (lambda (sym val)
+         (set-default sym val)
+         (setq whisper-return-cursor (if val 'start 'end)))
+  :group 'whisper)
+
+(defcustom whisper-return-cursor whisper-return-cursor-to-start
+  "Where to place cursor after transcription text is inserted.
+
+The text is always inserted at the original invocation point, but this
+controls where the cursor ends up afterwards.
+
+Possible values:
+- nil: cursor doesn't move
+- `start': cursor moves to start of inserted text
+- `end': cursor moves to end of inserted text"
+  :type '(choice (const :tag "Stay where cursor is" nil)
+                 (const :tag "At start of inserted text" start)
+                 (const :tag "At end of inserted text" end))
   :group 'whisper)
 
 (defcustom whisper-show-progress-in-mode-line t
@@ -559,13 +580,17 @@ PRE-PROCESSOR is a function that will be called first thing on the raw output."
     (when (> (buffer-size) 0)
       (if whisper-insert-text-at-point
           (with-current-buffer (marker-buffer whisper--marker)
-            (goto-char whisper--marker)
-            (whisper--insert-text
-             (with-current-buffer (get-buffer whisper--stdout-buffer-name)
-               (buffer-string)))
-            (when whisper-return-cursor-to-start
-              (goto-char whisper--marker))
-            (run-hooks 'whisper-after-insert-hook))
+            (let ((text (with-current-buffer (get-buffer whisper--stdout-buffer-name)
+                          (buffer-string)))
+                  end-pos)
+              (save-excursion
+                (goto-char whisper--marker)
+                (whisper--insert-text text)
+                (setq end-pos (point)))
+              (pcase whisper-return-cursor
+                ((or 'start 't) (goto-char whisper--marker))
+                ('end (goto-char end-pos)))
+              (run-hooks 'whisper-after-insert-hook)))
         (with-current-buffer
             (get-buffer-create (funcall whisper-transcription-buffer-name-function))
           (erase-buffer)

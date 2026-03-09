@@ -17,11 +17,12 @@ You can install =whisper.el= by cloning this repo somewhere, and then use it lik
   :load-path "path/to/whisper.el"
   :bind ("C-H-r" . whisper-run)
   :config
-  (setq whisper-install-directory "/tmp/"
-        whisper-model "base"
-        whisper-language "en"
-        whisper-translate nil
-        whisper-use-threads (/ (num-processors) 2)))
+  (setopt whisper-install-directory "/tmp/"
+          whisper-model "base"
+          whisper-language "en"
+          whisper-translate nil
+          whisper-cursor-return 'start
+          whisper-use-threads (/ (num-processors) 2)))
 #+end_src
 
 Or from Emacs 29.1 onwards you can install a package directly from vc source:
@@ -65,7 +66,10 @@ Few other variables for customising workflow:
      #+begin_src elisp
 (setq whisper-transcription-buffer-name-function #'whisper--simple-transcription-buffer-name)
      #+end_src
-- =whisper-return-cursor-to-start=: By default when whisper.el is inserting transcribed text at the point where =whisper-run= is invoked, it keeps cursor at original point to better denote where transcribed text begins. Set this to =nil= to let cursor go to the end of the transcribed text.
+- =whisper-return-cursor=: When whisper.el inserts transcribed text at the point where =whisper-run= was invoked, where we put the cursor depends on this variable. It can have the following values:
+   - ='start= (default): Puts cursor at the start of the inserted text (so exactly where =whisper-run= was invoked)
+   - ='end=: Puts cursor at the end of the inserted text
+   - =nil=: Don't move the cursor at all. Useful when you have drifted away after calling =whisper-run= and don't want to lose your current position
 - =whisper-server-mode=: Choose between different transcription modes:
    - =nil= (default): Use whisper.cpp directly
    - =local=: Spawns a whisper.cpp local HTTP server and uses that over network
