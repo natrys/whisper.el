@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.6
+;; Version: 0.4.7
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -496,7 +496,9 @@ Uses `whisper-server-baseurl' if set, otherwise constructs from
                                   (string-equal "terminated\n" event)
                                   ;; but this is reality
                                   (string-equal "exited abnormally with code 255\n" event))
-                              (whisper--transcribe-audio))
+                              (progn
+                                (set-file-modes whisper--temp-file #o600 'nofollow)
+                                (whisper--transcribe-audio)))
                              ((string-match-p "exited abnormally with code [0-9]+\n" event)
                               (if whisper--ffmpeg-input-file
                                   (error "FFmpeg failed to convert given file")
