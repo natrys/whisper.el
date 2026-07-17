@@ -353,6 +353,7 @@ This hook will be run in the original buffer the text was just inserted."
   "Error out if current buffer is read-only."
   (when (and whisper-insert-text-at-point
              buffer-read-only
+             (not (eq major-mode 'ghostel-mode))
              (not (eq major-mode 'vterm-mode)))
     (error "Buffer is read-only, can't insert text here")))
 
@@ -553,6 +554,8 @@ Uses `whisper-server-baseurl' if set, otherwise constructs from
   "Inserts transcribed text in current buffer according to context."
   (let ((mode major-mode))
     (cond
+     ((eq mode 'ghostel-mode) (when (fboundp 'ghostel-send-string)
+                                (ghostel-send-string text)))
      ((eq mode 'vterm-mode) (when (fboundp 'vterm-send-string)
                               (vterm-send-string text)))
      ((eq mode 'eat-mode) (when (and (fboundp 'eat-term-send-string) eat-terminal)
