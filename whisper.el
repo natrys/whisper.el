@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.7
+;; Version: 0.4.8
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -931,15 +931,20 @@ This is a dwim function that does different things depending on current state:
          ((and (pred file-readable-p) file) file)))
       (setq whisper--using-whispercpp nil)
       (cond
-       ;; For server modes, skip whisper.cpp installation check
-       (whisper-server-mode
+       ;; For remote/API modes, skip whisper.cpp installation check
+       ((memq whisper-server-mode '(remote openai))
         (whisper--record-audio))
-       ;; For local whisper.cpp mode
+       ;; For local whisper.cpp mode (both server and direct)
        (whisper-install-whispercpp
         (whisper--check-install-and-run nil "whisper-start"))
-       ;; For user-provided inference engine
+       ;; In local server mode, even if whisper-install-whispercpp is nil, we still need the server binary
+       ((eq whisper-server-mode 'local)
+        (if (file-exists-p (whisper--find-whispercpp-server))
+            (whisper--record-audio)
+          (error "Couldn't find whisper-server binary at %s" (whisper--find-whispercpp-server))))
+       ;; Otherwise: this is not server mode, and user is bringing their own inference engine
        (t
-        ;; Check the command exists
+        ;; We still check that their command exists
         (let ((command (car (whisper-command whisper--temp-file))))
           (if (or (file-exists-p command)
                   (executable-find command))
