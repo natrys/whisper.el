@@ -4,7 +4,7 @@
 
 ;; Author: Imran Khan <imran@khan.ovh>
 ;; URL: https://github.com/natrys/whisper.el
-;; Version: 0.4.8
+;; Version: 0.4.9
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -165,19 +165,20 @@ and `whisper-server-port' (for backward compatibility)."
                  string)
   :group 'whisper)
 
-(define-obsolete-variable-alias 'whisper-server-host 'whisper-server-baseurl "0.4.5")
 (defcustom whisper-server-host "127.0.0.1"
   "Host address for the whisper server.
 This is now only used when `whisper-server-baseurl' is nil."
   :type 'string
   :group 'whisper)
 
-(define-obsolete-variable-alias 'whisper-server-port 'whisper-server-baseurl "0.4.5")
 (defcustom whisper-server-port 8642
   "Port number for the whisper server.
 This is now only used when `whisper-server-baseurl' is nil."
   :type 'integer
   :group 'whisper)
+
+(make-obsolete-variable 'whisper-server-host 'whisper-server-baseurl "0.4.5")
+(make-obsolete-variable 'whisper-server-port 'whisper-server-baseurl "0.4.5")
 
 (defcustom whisper-openai-api-baseurl "https://api.openai.com/"
   "URL for OpenAI compatible transcription API endpoint."
